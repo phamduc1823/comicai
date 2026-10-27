@@ -1,6 +1,6 @@
 <?php
 
-use Illuminate\Http\Request;
+use App\Http\Controllers\Api\AuthController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', function () {
@@ -11,6 +11,10 @@ Route::get('/health', function () {
     ]);
 });
 
-Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
-    return $request->user();
+Route::middleware(['guest.api', 'throttle:10,1,register'])->post('/register', [AuthController::class, 'register']);
+Route::middleware(['guest.api', 'throttle:5,1,login'])->post('/login', [AuthController::class, 'login']);
+
+Route::middleware(['auth:sanctum', 'active'])->group(function () {
+    Route::get('/user', [AuthController::class, 'user']);
+    Route::post('/logout', [AuthController::class, 'logout']);
 });
