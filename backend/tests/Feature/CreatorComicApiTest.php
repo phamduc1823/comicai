@@ -362,6 +362,7 @@ class CreatorComicApiTest extends TestCase
         $approvedComic->save();
         $approvedComic->genres()->sync([$this->actionGenre->id]);
         $approvedComic->tags()->sync([$this->colorTag->id]);
+        Storage::disk('public')->put('comics/covers/original_cover.webp', 'original_cover_data');
 
         $newCover = UploadedFile::fake()->image('new_cover.webp', 600, 800);
 
@@ -390,6 +391,9 @@ class CreatorComicApiTest extends TestCase
         $this->assertSame('13+', $fresh->age_rating);
         $this->assertSame('approved', $fresh->approval_status);
 
+        // Active public cover file is NOT deleted:
+        Storage::disk('public')->assertExists('comics/covers/original_cover.webp');
+
         // 2. Non-critical status is updated directly:
         $this->assertSame('completed', $fresh->status);
 
@@ -399,20 +403,26 @@ class CreatorComicApiTest extends TestCase
         $this->assertSame('Mô tả mới sửa đang chờ duyệt.', $fresh->pending_changes['description']);
         $this->assertSame('16+', $fresh->pending_changes['age_rating']);
         $this->assertTrue(str_starts_with($fresh->pending_changes['cover_path'], 'comics/covers/'));
+        Storage::disk('public')->assertExists($fresh->pending_changes['cover_path']);
 
-        // 4. Submitting another revision while pending_changes is active returns HTTP 422
+        // 4. Submitting another revision while pending_changes is active returns HTTP 422 and cleans up uploaded file
+        $rejectedCover = UploadedFile::fake()->image('rejected_cover.webp', 600, 800);
         $resOverwrite = $this->actingAs($this->creatorA)->postJson("/api/creator/comics/{$approvedComic->id}", [
             'title' => 'Tên Sửa Lần Hai',
+            'cover' => $rejectedCover,
         ]);
         $resOverwrite->assertStatus(422);
         $resOverwrite->assertJson([
             'status' => 'error',
             'message' => 'Bộ truyện đang có bản chỉnh sửa chờ duyệt. Bạn không thể gửi bản sửa đổi mới cho đến khi bản hiện tại được xử lý hoặc bị hủy.',
         ]);
+
+        // Original pending_changes is NOT overwritten
+        $this->assertSame('Tên Mới Đề Xuất', $approvedComic->fresh()->pending_changes['title']);
     }
 
     /**
-     * 10. Update workflow for DRAFT/REJECTED comic updates fields directly and cleans up old cover.
+     * 10. Update workflow for DRAFT comic updates fields directly and cleans up old cover.
      */
     public function test_draft_comic_update_applies_directly(): void
     {
@@ -457,5 +467,207 @@ class CreatorComicApiTest extends TestCase
         // Old cover was deleted, new cover exists
         Storage::disk('public')->assertMissing($oldPath);
         Storage::disk('public')->assertExists($fresh->cover_path);
+    }
+
+    /**
+     * 11. Update workflow for REJECTED comic:
+     * - Creator can update details directly (Branch B).
+     * - Old cover is superseded and cleaned up.
+     * - Comic remains editable while in rejected state until re-submitted.
+     */
+    public function test_creator_can_update_rejected_comic_directly(): void
+    {
+        $oldCover = UploadedFile::fake()->image('rejected_old.webp', 600, 800);
+        $oldPath = $oldCover->storeAs('comics/covers', 'rejected_old.webp', 'public');
+
+        $comic = Comic::create([
+            'title' => 'Truyện Bị Từ Chối',
+            'slug' => 'truyen-bi-tu-choi',
+            'author_name' => 'Tác Giả Cũ',
+            'description' => 'Mô tả cần sửa lại theo yêu cầu kiểm duyệt.',
+            'user_id' => $this->creatorA->id,
+            'cover_path' => $oldPath,
+        ]);
+        $comic->approval_status = 'rejected';
+        $comic->rejection_reason = 'Tiêu đề và ảnh bìa chưa phù hợp tiêu chuẩn.';
+        $comic->save();
+        $comic->genres()->sync([$this->actionGenre->id]);
+
+        $newCover = UploadedFile::fake()->image('rejected_fixed.webp', 600, 800);
+
+        $payload = [
+            'title' => 'Truyện Đã Sửa Đổi Hoàn Chỉnh',
+            'author_name' => 'Tác Giả Đã Cập Nhật',
+            'description' => 'Mô tả đã được biên tập lại đúng chuẩn.',
+            'cover' => $newCover,
+            'genres' => [$this->comedyGenre->id],
+        ];
+
+        $response = $this->actingAs($this->creatorA)->postJson("/api/creator/comics/{$comic->id}", $payload);
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'status' => 'success',
+            'message' => 'Cập nhật bộ truyện thành công.',
+            'data' => [
+                'title' => 'Truyện Đã Sửa Đổi Hoàn Chỉnh',
+                'author_name' => 'Tác Giả Đã Cập Nhật',
+                'approval_status' => 'rejected',
+            ],
+        ]);
+
+        $fresh = $comic->fresh();
+        $this->assertSame('Truyện Đã Sửa Đổi Hoàn Chỉnh', $fresh->title);
+        $this->assertSame('Tác Giả Đã Cập Nhật', $fresh->author_name);
+        $this->assertSame('Mô tả đã được biên tập lại đúng chuẩn.', $fresh->description);
+        $this->assertNotSame($oldPath, $fresh->cover_path);
+
+        // Old cover removed, new cover stored
+        Storage::disk('public')->assertMissing($oldPath);
+        Storage::disk('public')->assertExists($fresh->cover_path);
+    }
+
+    /**
+     * 12. Update aborts and leaves data intact if comic shifts to pending before lock acquisition.
+     * Simulates race condition where pre-transaction validation passed, but another request
+     * submitted the comic for review right before lockForUpdate is executed.
+     */
+    public function test_comic_update_aborts_if_status_shifts_to_pending_before_lock(): void
+    {
+        $comic = Comic::create([
+            'title' => 'Truyện Sắp Gửi Duyệt',
+            'slug' => 'truyen-sap-gui-duyet',
+            'author_name' => 'Tác Giả',
+            'user_id' => $this->creatorA->id,
+            'cover_path' => 'comics/covers/original_pending.webp',
+            'approval_status' => 'draft',
+        ]);
+        Storage::disk('public')->put('comics/covers/original_pending.webp', 'original');
+
+        $newCover = UploadedFile::fake()->image('incoming_cover.webp', 600, 800);
+
+        // Intercept query: mutate DB record to 'pending' after controller loads model, before lockForUpdate
+        $mutated = false;
+        \Illuminate\Support\Facades\DB::listen(function ($query) use ($comic, &$mutated) {
+            // Target the eager load query from controller's findOrFail (loading user with avatar_path)
+            if (! $mutated && str_contains(strtolower($query->sql), 'avatar_path') && str_contains(strtolower($query->sql), 'from "users"')) {
+                $mutated = true;
+                \Illuminate\Support\Facades\DB::table('comics')
+                    ->where('id', $comic->id)
+                    ->update(['approval_status' => 'pending']);
+            }
+        });
+
+        $response = $this->actingAs($this->creatorA)->postJson("/api/creator/comics/{$comic->id}", [
+            'title' => 'Tiêu Đề Bị Ghi Đè',
+            'cover' => $newCover,
+        ]);
+
+        $this->assertTrue($mutated, 'Listener must have intercepted the initial read to simulate race interleaving.');
+
+        $response->assertStatus(403);
+        $response->assertJson([
+            'status' => 'error',
+            'message' => 'Không thể chỉnh sửa bộ truyện khi đang trong quá trình chờ duyệt.',
+        ]);
+
+        // Verify comic title in DB was NOT modified and remains in pending state
+        $fresh = $comic->fresh();
+        $this->assertSame('Truyện Sắp Gửi Duyệt', $fresh->title);
+        $this->assertSame('pending', $fresh->approval_status);
+
+        // Verify original cover intact
+        Storage::disk('public')->assertExists('comics/covers/original_pending.webp');
+    }
+
+    /**
+     * 13. Approved comic update aborts if another request submitted pending_changes before lock.
+     * Simulates race condition where pre-transaction check saw pending_changes as null,
+     * but a concurrent request committed pending_changes right before lockForUpdate.
+     */
+    public function test_approved_comic_update_aborts_if_pending_changes_added_before_lock(): void
+    {
+        $comic = Comic::create([
+            'title' => 'Truyện Đã Duyệt Gốc',
+            'slug' => 'truyen-da-duyet-goc',
+            'author_name' => 'Tác Giả Gốc',
+            'user_id' => $this->creatorA->id,
+            'cover_path' => 'comics/covers/original_approved.webp',
+        ]);
+        $comic->approval_status = 'approved';
+        $comic->pending_changes = null;
+        $comic->save();
+        Storage::disk('public')->put('comics/covers/original_approved.webp', 'original');
+
+        $concurrentChanges = [
+            'title' => 'Bản Sửa Của Request 1',
+            'author_name' => 'Tác Giả Request 1',
+            'submitted_at' => now()->toIso8601String(),
+        ];
+
+        $mutated = false;
+        \Illuminate\Support\Facades\DB::listen(function ($query) use ($comic, $concurrentChanges, &$mutated) {
+            // Target the eager load query from controller's findOrFail
+            if (! $mutated && str_contains(strtolower($query->sql), 'avatar_path') && str_contains(strtolower($query->sql), 'from "users"')) {
+                $mutated = true;
+                \Illuminate\Support\Facades\DB::table('comics')
+                    ->where('id', $comic->id)
+                    ->update(['pending_changes' => json_encode($concurrentChanges)]);
+            }
+        });
+
+        $incomingCover = UploadedFile::fake()->image('incoming_second.webp', 600, 800);
+
+        // Request 2 attempts to send its update
+        $response = $this->actingAs($this->creatorA)->postJson("/api/creator/comics/{$comic->id}", [
+            'title' => 'Bản Sửa Của Request 2 Bị Từ Chối',
+            'cover' => $incomingCover,
+        ]);
+
+        $this->assertTrue($mutated, 'Listener must have intercepted query to inject concurrent pending_changes.');
+
+        $response->assertStatus(422);
+        $response->assertJson([
+            'status' => 'error',
+            'message' => 'Bộ truyện đang có bản chỉnh sửa chờ duyệt. Bạn không thể gửi bản sửa đổi mới cho đến khi bản hiện tại được xử lý hoặc bị hủy.',
+        ]);
+
+        $fresh = $comic->fresh();
+        // Existing pending_changes from Request 1 MUST NOT be overwritten
+        $this->assertSame('Bản Sửa Của Request 1', $fresh->pending_changes['title']);
+        $this->assertSame('Truyện Đã Duyệt Gốc', $fresh->title);
+
+        // Original public cover remains intact
+        Storage::disk('public')->assertExists('comics/covers/original_approved.webp');
+    }
+
+    /**
+     * 14. Admin preserves update authority over any comic according to role matrix.
+     */
+    public function test_admin_can_update_comic_belonging_to_creator(): void
+    {
+        $comic = Comic::create([
+            'title' => 'Truyện Của Creator A',
+            'slug' => 'truyen-cua-creator-a',
+            'author_name' => 'Tác Giả A',
+            'user_id' => $this->creatorA->id,
+            'cover_path' => 'comics/covers/comic_a.webp',
+            'approval_status' => 'draft',
+        ]);
+
+        $response = $this->actingAs($this->admin)->postJson("/api/creator/comics/{$comic->id}", [
+            'title' => 'Tiêu Đề Được Admin Biên Tập',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'status' => 'success',
+            'message' => 'Cập nhật bộ truyện thành công.',
+            'data' => [
+                'title' => 'Tiêu Đề Được Admin Biên Tập',
+            ],
+        ]);
+
+        $this->assertSame('Tiêu Đề Được Admin Biên Tập', $comic->fresh()->title);
     }
 }

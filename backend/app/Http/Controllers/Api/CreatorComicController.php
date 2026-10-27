@@ -185,9 +185,10 @@ class CreatorComicController extends Controller
         $comic = Comic::with(['genres', 'tags', 'user:id,name,avatar_path', 'approver:id,name'])->findOrFail($id);
         $this->authorize('update', $comic);
 
+        $user = $request->user();
         $validated = $request->validated();
 
-        // Check if comic is in pending review
+        // Preliminary fast-fail checks before processing file uploads
         if ($comic->approval_status === 'pending') {
             return response()->json([
                 'status' => 'error',
@@ -195,68 +196,13 @@ class CreatorComicController extends Controller
             ], 403);
         }
 
-        // Branch A: Comic is already APPROVED
-        if ($comic->approval_status === 'approved') {
-            // Prevent silent overwrite if a previous pending_changes is still under review
-            if ($comic->pending_changes !== null) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Bộ truyện đang có bản chỉnh sửa chờ duyệt. Bạn không thể gửi bản sửa đổi mới cho đến khi bản hiện tại được xử lý hoặc bị hủy.',
-                ], 422);
-            }
-
-            $newCoverPath = null;
-            if ($request->hasFile('cover')) {
-                $file = $request->file('cover');
-                $extension = $file->guessExtension() ?: 'webp';
-                $filename = Str::random(40) . '.' . $extension;
-                $newCoverPath = $file->storeAs('comics/covers', $filename, 'public');
-            }
-
-            try {
-                DB::transaction(function () use ($comic, $validated, $newCoverPath) {
-                    // Non-critical fields apply directly:
-                    if (isset($validated['status'])) {
-                        $comic->status = $validated['status'];
-                    }
-                    if (array_key_exists('alternative_titles', $validated)) {
-                        $comic->alternative_titles = $validated['alternative_titles'];
-                    }
-
-                    // Critical changes are queued into pending_changes:
-                    $tagIds = isset($validated['tags'])
-                        ? array_values(array_unique($validated['tags']))
-                        : $comic->tags->pluck('id')->all();
-
-                    $comic->pending_changes = [
-                        'title' => $validated['title'] ?? $comic->title,
-                        'author_name' => $validated['author_name'] ?? $comic->author_name,
-                        'description' => array_key_exists('description', $validated) ? $validated['description'] : $comic->description,
-                        'cover_path' => $newCoverPath ?? $comic->cover_path,
-                        'age_rating' => $validated['age_rating'] ?? $comic->age_rating,
-                        'tags' => $tagIds,
-                        'submitted_at' => now()->toIso8601String(),
-                    ];
-
-                    $comic->save();
-                });
-            } catch (\Throwable $e) {
-                if ($newCoverPath) {
-                    Storage::disk('public')->delete($newCoverPath);
-                }
-                throw $e;
-            }
-
-            $comic->load(['genres', 'tags', 'user:id,name,avatar_path', 'approver:id,name']);
-
+        if ($comic->approval_status === 'approved' && $comic->pending_changes !== null) {
             return response()->json([
-                'status' => 'success',
-                'message' => 'Bản chỉnh sửa quan trọng đã được gửi vào hàng đợi duyệt của Quản trị viên.',
-                'data' => new CreatorComicResource($comic),
-            ]);
+                'status' => 'error',
+                'message' => 'Bộ truyện đang có bản chỉnh sửa chờ duyệt. Bạn không thể gửi bản sửa đổi mới cho đến khi bản hiện tại được xử lý hoặc bị hủy.',
+            ], 422);
         }
 
-        // Branch B: Comic is in 'draft' or 'rejected'
         $newCoverPath = null;
         $oldCoverPath = null;
 
@@ -265,47 +211,117 @@ class CreatorComicController extends Controller
             $extension = $file->guessExtension() ?: 'webp';
             $filename = Str::random(40) . '.' . $extension;
             $newCoverPath = $file->storeAs('comics/covers', $filename, 'public');
-            $oldCoverPath = $comic->cover_path;
         }
 
+        $statusError = null;
+        $isApprovedBranch = false;
+
         try {
-            DB::transaction(function () use ($comic, $validated, $newCoverPath) {
+            DB::transaction(function () use (
+                $id,
+                $user,
+                $validated,
+                $newCoverPath,
+                &$comic,
+                &$oldCoverPath,
+                &$statusError,
+                &$isApprovedBranch
+            ) {
+                $locked = Comic::with(['genres', 'tags'])->where('id', $id)->lockForUpdate()->firstOrFail();
+
+                // 1. Re-verify ownership on the locked record (creators can only update own comic)
+                if ($user->role !== 'admin' && (int) $locked->user_id !== (int) $user->id) {
+                    $statusError = [
+                        'status' => 403,
+                        'message' => 'Hành động không được phép.',
+                    ];
+                    return;
+                }
+
+                // 2. Re-verify pending status on the locked record
+                if ($locked->approval_status === 'pending') {
+                    $statusError = [
+                        'status' => 403,
+                        'message' => 'Không thể chỉnh sửa bộ truyện khi đang trong quá trình chờ duyệt.',
+                    ];
+                    return;
+                }
+
+                // 3. Branch A: Comic is APPROVED
+                if ($locked->approval_status === 'approved') {
+                    if ($locked->pending_changes !== null) {
+                        $statusError = [
+                            'status' => 422,
+                            'message' => 'Bộ truyện đang có bản chỉnh sửa chờ duyệt. Bạn không thể gửi bản sửa đổi mới cho đến khi bản hiện tại được xử lý hoặc bị hủy.',
+                        ];
+                        return;
+                    }
+
+                    $isApprovedBranch = true;
+
+                    // Non-critical fields apply directly:
+                    if (isset($validated['status'])) {
+                        $locked->status = $validated['status'];
+                    }
+                    if (array_key_exists('alternative_titles', $validated)) {
+                        $locked->alternative_titles = $validated['alternative_titles'];
+                    }
+
+                    // Critical changes are queued into pending_changes:
+                    $tagIds = isset($validated['tags'])
+                        ? array_values(array_unique($validated['tags']))
+                        : $locked->tags->pluck('id')->all();
+
+                    $locked->pending_changes = [
+                        'title' => $validated['title'] ?? $locked->title,
+                        'author_name' => $validated['author_name'] ?? $locked->author_name,
+                        'description' => array_key_exists('description', $validated) ? $validated['description'] : $locked->description,
+                        'cover_path' => $newCoverPath ?? $locked->cover_path,
+                        'age_rating' => $validated['age_rating'] ?? $locked->age_rating,
+                        'tags' => $tagIds,
+                        'submitted_at' => now()->toIso8601String(),
+                    ];
+
+                    $locked->save();
+                    $comic = $locked;
+                    return;
+                }
+
+                // 4. Branch B: Comic is in 'draft' or 'rejected'
                 if (isset($validated['title'])) {
-                    $comic->title = $validated['title'];
+                    $locked->title = $validated['title'];
                 }
                 if (isset($validated['author_name'])) {
-                    $comic->author_name = $validated['author_name'];
+                    $locked->author_name = $validated['author_name'];
                 }
                 if (array_key_exists('description', $validated)) {
-                    $comic->description = $validated['description'];
+                    $locked->description = $validated['description'];
                 }
                 if (array_key_exists('alternative_titles', $validated)) {
-                    $comic->alternative_titles = $validated['alternative_titles'];
+                    $locked->alternative_titles = $validated['alternative_titles'];
                 }
                 if (isset($validated['age_rating'])) {
-                    $comic->age_rating = $validated['age_rating'];
+                    $locked->age_rating = $validated['age_rating'];
                 }
                 if (isset($validated['status'])) {
-                    $comic->status = $validated['status'];
+                    $locked->status = $validated['status'];
                 }
                 if ($newCoverPath) {
-                    $comic->cover_path = $newCoverPath;
+                    $oldCoverPath = $locked->cover_path;
+                    $locked->cover_path = $newCoverPath;
                 }
 
-                $comic->save();
+                $locked->save();
 
                 if (isset($validated['genres'])) {
-                    $comic->genres()->sync($validated['genres']);
+                    $locked->genres()->sync($validated['genres']);
                 }
                 if (isset($validated['tags'])) {
-                    $comic->tags()->sync($validated['tags']);
+                    $locked->tags()->sync($validated['tags']);
                 }
-            });
 
-            // Delete old uploaded cover if superseded
-            if ($oldCoverPath && $newCoverPath && str_starts_with($oldCoverPath, 'comics/covers/')) {
-                Storage::disk('public')->delete($oldCoverPath);
-            }
+                $comic = $locked;
+            });
         } catch (\Throwable $e) {
             if ($newCoverPath) {
                 Storage::disk('public')->delete($newCoverPath);
@@ -313,7 +329,30 @@ class CreatorComicController extends Controller
             throw $e;
         }
 
+        if ($statusError !== null) {
+            if ($newCoverPath) {
+                Storage::disk('public')->delete($newCoverPath);
+            }
+            return response()->json([
+                'status' => 'error',
+                'message' => $statusError['message'],
+            ], $statusError['status']);
+        }
+
+        // Delete old uploaded cover if superseded in Branch B (draft/rejected)
+        if (! $isApprovedBranch && $oldCoverPath && $newCoverPath && str_starts_with($oldCoverPath, 'comics/covers/')) {
+            Storage::disk('public')->delete($oldCoverPath);
+        }
+
         $comic->load(['genres', 'tags', 'user:id,name,avatar_path', 'approver:id,name']);
+
+        if ($isApprovedBranch) {
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Bản chỉnh sửa quan trọng đã được gửi vào hàng đợi duyệt của Quản trị viên.',
+                'data' => new CreatorComicResource($comic),
+            ]);
+        }
 
         return response()->json([
             'status' => 'success',
