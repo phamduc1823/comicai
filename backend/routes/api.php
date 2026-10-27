@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Api\AdminChapterModerationController;
+use App\Http\Controllers\Api\AdminComicModerationController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BannerController;
 use App\Http\Controllers\Api\ChapterController;
@@ -59,4 +61,19 @@ Route::middleware(['auth:sanctum', 'active', 'role:creator'])->prefix('creator')
     Route::post('/chapters/{id}/images', [CreatorChapterController::class, 'uploadImages']);
     Route::match(['put', 'patch'], '/chapters/{id}/images/reorder', [CreatorChapterController::class, 'reorderImages']);
     Route::delete('/chapters/{id}/images/{imageId}', [CreatorChapterController::class, 'deleteImage']);
+});
+
+// Admin Moderation endpoints (strictly admin only)
+Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/moderation')->group(function () {
+    // Comics moderation queue & actions
+    Route::get('/comics', [AdminComicModerationController::class, 'index']);
+    Route::post('/comics/{id}/approve', [AdminComicModerationController::class, 'approve']);
+    Route::post('/comics/{id}/reject', [AdminComicModerationController::class, 'reject']);
+    Route::post('/comics/{id}/approve-changes', [AdminComicModerationController::class, 'approveChanges']);
+    Route::post('/comics/{id}/reject-changes', [AdminComicModerationController::class, 'rejectChanges']);
+
+    // Chapters moderation queue & actions
+    Route::get('/chapters', [AdminChapterModerationController::class, 'index']);
+    Route::post('/chapters/{id}/approve', [AdminChapterModerationController::class, 'approve']);
+    Route::post('/chapters/{id}/reject', [AdminChapterModerationController::class, 'reject']);
 });

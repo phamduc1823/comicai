@@ -54,6 +54,7 @@ class Chapter extends Model
         return [
             'chapter_number' => 'decimal:2',
             'views_count' => 'integer',
+            'approved_at' => 'datetime',
         ];
     }
 
@@ -63,6 +64,14 @@ class Chapter extends Model
     public function comic(): BelongsTo
     {
         return $this->belongsTo(Comic::class, 'comic_id');
+    }
+
+    /**
+     * The administrator who approved or reviewed this chapter.
+     */
+    public function approver(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
     }
 
     /**
