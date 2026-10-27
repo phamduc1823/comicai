@@ -22,3 +22,4 @@ export interface ApiHealthResponse {
 }
 
 export * from './auth'
+export * from './catalog'

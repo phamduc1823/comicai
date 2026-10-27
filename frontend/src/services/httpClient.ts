@@ -114,6 +114,13 @@ export function isForbiddenError(error: unknown): boolean {
 }
 
 /**
+ * Check if error is HTTP 404 Not Found (e.g. comic or chapter not found / unapproved).
+ */
+export function isNotFoundError(error: unknown): boolean {
+  return isAxiosError(error) && error.response?.status === 404
+}
+
+/**
  * Check if error is HTTP 422 Unprocessable Content (validation failure).
  */
 export function isValidationError(error: unknown): boolean {

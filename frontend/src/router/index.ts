@@ -24,6 +24,30 @@ const router = createRouter({
       },
     },
     {
+      path: '/comics',
+      name: 'comics',
+      component: () => import('@/pages/ComicsPage.vue'),
+      meta: {
+        title: 'Danh mục truyện — BlueToon',
+      },
+    },
+    {
+      path: '/comics/:slug',
+      name: 'comic-detail',
+      component: () => import('@/pages/ComicDetailPage.vue'),
+      meta: {
+        title: 'Chi tiết truyện — BlueToon',
+      },
+    },
+    {
+      path: '/comics/:slug/chapters/:chapterNumber',
+      name: 'comic-reader',
+      component: () => import('@/pages/ComicReaderPage.vue'),
+      meta: {
+        title: 'Đọc truyện — BlueToon',
+      },
+    },
+    {
       path: '/login',
       name: 'login',
       component: () => import('@/pages/LoginPage.vue'),

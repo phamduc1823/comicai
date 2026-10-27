@@ -1,92 +1,213 @@
 <script setup lang="ts">
-import { useAppStore } from '@/stores/app'
+import { ref, onMounted } from 'vue'
+import BannerSlider from '@/components/BannerSlider.vue'
+import ComicCard from '@/components/ComicCard.vue'
+import { CatalogService } from '@/services/catalogService'
+import { getErrorMessage } from '@/services/httpClient'
+import type { ComicListItem, ComicSortOption, PaginationMeta } from '@/types/catalog'
 
-const appStore = useAppStore()
+const comics = ref<ComicListItem[]>([])
+const isLoading = ref(true)
+const errorMessage = ref<string | null>(null)
+const currentSort = ref<ComicSortOption>('latest')
+const currentPage = ref(1)
+const paginationMeta = ref<PaginationMeta | null>(null)
+
+const sortOptions: { value: ComicSortOption; label: string; icon: string }[] = [
+  { value: 'latest', label: 'Mới nhất', icon: '🕒' },
+  { value: 'views', label: 'Xem nhiều', icon: '🔥' },
+  { value: 'follows', label: 'Theo dõi nhiều', icon: '⭐' },
+]
+
+async function fetchComics(page = 1, sort = currentSort.value) {
+  isLoading.value = true
+  errorMessage.value = null
+  currentPage.value = page
+  currentSort.value = sort
+
+  try {
+    const response = await CatalogService.getComics({
+      page,
+      per_page: 18,
+      sort,
+    })
+    comics.value = response.data || []
+    paginationMeta.value = response.meta || null
+  } catch (error: unknown) {
+    errorMessage.value = getErrorMessage(
+      error,
+      'Không thể tải danh sách truyện. Vui lòng kiểm tra kết nối mạng và thử lại.'
+    )
+  } finally {
+    isLoading.value = false
+  }
+}
+
+function handleSortChange(sort: ComicSortOption) {
+  if (currentSort.value === sort && !isLoading.value) return
+  fetchComics(1, sort)
+}
+
+function handlePageChange(page: number) {
+  if (page < 1 || (paginationMeta.value && page > paginationMeta.value.last_page)) return
+  fetchComics(page, currentSort.value)
+  // Smooth scroll to catalog section
+  const section = document.getElementById('catalog-section')
+  if (section) {
+    section.scrollIntoView({ behavior: 'smooth' })
+  }
+}
+
+onMounted(() => {
+  fetchComics()
+})
 </script>
 
 <template>
   <div class="home-page">
-    <section class="hero-section">
-      <div class="container hero-container">
-        <div class="status-indicator">
-          <span class="status-dot"></span>
-          <span>Nền tảng Frontend đã khởi tạo thành công (CAI-006)</span>
-        </div>
+    <!-- Hero Banner Slider -->
+    <BannerSlider />
 
-        <h1 class="hero-title">
-          Chào mừng đến với <span class="highlight">{{ appStore.appInfo.name }}</span>
-        </h1>
-        <p class="hero-description">
-          {{ appStore.appInfo.tagline }}. Bộ khung giao diện Single Page Application (SPA) đã được thiết lập sẵn sàng kết nối với Backend API Laravel 13.
-        </p>
-
-        <div class="hero-meta">
-          <div class="meta-pill">
-            <span class="meta-label">Môi trường:</span>
-            <span class="meta-val">{{ appStore.appInfo.environment }}</span>
-          </div>
-          <div class="meta-pill">
-            <span class="meta-label">API Base URL:</span>
-            <span class="meta-val"><code>{{ appStore.appInfo.apiBaseUrl }}</code></span>
-          </div>
-          <div class="meta-pill">
-            <span class="meta-label">Design System:</span>
-            <span class="meta-val">Vanilla CSS Tokens (Dark Theme)</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="stack-section">
+    <!-- Main Catalog Section -->
+    <section id="catalog-section" class="catalog-section" aria-label="Danh mục truyện">
       <div class="container">
-        <div class="section-header">
-          <h2 class="section-title">Công nghệ Frontend đã thiết lập</h2>
-          <p class="section-subtitle">
-            Khung công nghệ chuẩn hiện đại cho SPA truyện tranh, đảm bảo type safety, hiệu năng tải trang và trải nghiệm mượt mà.
+        <!-- Section Header with Sort Tabs -->
+        <div class="catalog-header">
+          <div class="header-titles">
+            <h1 class="catalog-title">
+              <span class="title-highlight">Truyện tranh</span> nổi bật
+            </h1>
+            <p class="catalog-subtitle">
+              Kho truyện tranh đa dạng thể loại, cập nhật chương mới liên tục mỗi ngày
+            </p>
+          </div>
+
+          <!-- Sort Filter Controls -->
+          <div class="sort-tabs" role="tablist" aria-label="Sắp xếp danh sách truyện">
+            <button
+              v-for="opt in sortOptions"
+              :key="opt.value"
+              type="button"
+              role="tab"
+              :aria-selected="currentSort === opt.value"
+              class="sort-tab-btn"
+              :class="{ active: currentSort === opt.value }"
+              :disabled="isLoading"
+              @click="handleSortChange(opt.value)"
+            >
+              <span class="tab-icon" aria-hidden="true">{{ opt.icon }}</span>
+              <span>{{ opt.label }}</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Loading Skeleton Grid -->
+        <div v-if="isLoading" class="comics-grid" aria-busy="true" aria-label="Đang tải danh sách truyện">
+          <div v-for="n in 12" :key="'skeleton-' + n" class="card-skeleton">
+            <div class="skeleton-cover"></div>
+            <div class="skeleton-info">
+              <div class="skeleton-line title"></div>
+              <div class="skeleton-line author"></div>
+              <div class="skeleton-line tags"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Error State -->
+        <div v-else-if="errorMessage" class="state-container error-state" role="alert">
+          <span class="state-icon" aria-hidden="true">⚠️</span>
+          <h2 class="state-title">Đã xảy ra sự cố khi tải dữ liệu</h2>
+          <p class="state-desc">{{ errorMessage }}</p>
+          <button
+            type="button"
+            class="btn-retry"
+            aria-label="Thử tải lại danh sách truyện"
+            @click="fetchComics(currentPage, currentSort)"
+          >
+            Thử lại
+          </button>
+        </div>
+
+        <!-- Empty State -->
+        <div v-else-if="comics.length === 0" class="state-container empty-state">
+          <span class="state-icon" aria-hidden="true">📚</span>
+          <h2 class="state-title">Chưa có truyện tranh nào được phát hành</h2>
+          <p class="state-desc">
+            Hiện tại các bộ truyện đang được biên tập và cập nhật. Hãy quay lại sau ít phút nhé!
           </p>
+          <button
+            type="button"
+            class="btn-retry"
+            aria-label="Tải lại trang"
+            @click="fetchComics(1, currentSort)"
+          >
+            Làm mới danh sách
+          </button>
         </div>
 
-        <div class="stack-grid">
-          <div v-for="item in appStore.techStack" :key="item.name" class="stack-card">
-            <div class="card-header">
-              <span class="card-category">{{ item.category }}</span>
-              <span class="card-status">{{ item.status }}</span>
-            </div>
-            <h3 class="card-title">{{ item.name }}</h3>
-            <span class="card-version">{{ item.version }}</span>
-            <p class="card-notes">{{ item.notes }}</p>
+        <!-- Comics Grid -->
+        <div v-else class="comics-content">
+          <div class="comics-grid">
+            <ComicCard
+              v-for="comic in comics"
+              :key="comic.id"
+              :comic="comic"
+            />
           </div>
+
+          <!-- Pagination Controls -->
+          <nav
+            v-if="paginationMeta && paginationMeta.last_page > 1"
+            class="pagination-nav"
+            aria-label="Phân trang danh sách truyện"
+          >
+            <button
+              type="button"
+              class="btn-page btn-prev"
+              :disabled="paginationMeta.current_page <= 1"
+              aria-label="Trang trước"
+              @click="handlePageChange(paginationMeta.current_page - 1)"
+            >
+              ‹ Trang trước
+            </button>
+
+            <span class="page-indicator">
+              Trang <strong>{{ paginationMeta.current_page }}</strong> / {{ paginationMeta.last_page }}
+              <span class="total-count">({{ paginationMeta.total }} truyện)</span>
+            </span>
+
+            <button
+              type="button"
+              class="btn-page btn-next"
+              :disabled="paginationMeta.current_page >= paginationMeta.last_page"
+              aria-label="Trang tiếp theo"
+              @click="handlePageChange(paginationMeta.current_page + 1)"
+            >
+              Trang sau ›
+            </button>
+          </nav>
         </div>
       </div>
     </section>
 
-    <section class="info-section">
+    <!-- Platform Highlights Section -->
+    <section class="platform-features" aria-label="Điểm nổi bật của nền tảng">
       <div class="container">
-        <div class="info-card">
-          <div class="info-header">
-            <span class="info-icon">⚡</span>
-            <div>
-              <h3 class="info-title">Trạng thái tích hợp Monorepo</h3>
-              <p class="info-desc">Kiến trúc kết nối giữa Frontend SPA và Backend API</p>
-            </div>
+        <div class="features-grid">
+          <div class="feature-card">
+            <span class="feature-icon" aria-hidden="true">⚡</span>
+            <h3 class="feature-title">Đọc mượt mà, không quảng cáo rác</h3>
+            <p class="feature-desc">Trải nghiệm đọc truyện tối ưu, tốc độ tải ảnh tức thì và giao diện thân thiện với mọi thiết bị.</p>
           </div>
-          <div class="info-grid">
-            <div class="info-item">
-              <span class="info-key">Backend API:</span>
-              <span class="info-value">Laravel Framework 13.38.0 (Đã nghiệm thu CAI-005)</span>
-            </div>
-            <div class="info-item">
-              <span class="info-key">Xác thực:</span>
-              <span class="info-value">Laravel Sanctum v4.3.3 (SPA Cookie / Stateful Session)</span>
-            </div>
-            <div class="info-item">
-              <span class="info-key">Dev Proxy:</span>
-              <span class="info-value">Vite chuyển tiếp <code>/api</code> và <code>/sanctum</code> sang backend</span>
-            </div>
-            <div class="info-item">
-              <span class="info-key">Mã nguồn & Git:</span>
-              <span class="info-value">Monorepo cô lập, <code>node_modules</code> và <code>dist</code> được bảo vệ nghiêm ngặt</span>
-            </div>
+          <div class="feature-card">
+            <span class="feature-icon" aria-hidden="true">🤖</span>
+            <h3 class="feature-title">Tích hợp AI tóm tắt nội dung</h3>
+            <p class="feature-desc">Hệ thống trợ lý AI hỗ trợ tóm tắt cốt truyện và gợi ý các tác phẩm phù hợp với sở thích của bạn.</p>
+          </div>
+          <div class="feature-card">
+            <span class="feature-icon" aria-hidden="true">🔒</span>
+            <h3 class="feature-title">Bảo mật &amp; Bản quyền</h3>
+            <p class="feature-desc">Tác phẩm được bảo hộ bản quyền tác giả, hỗ trợ trực tiếp các nhà sáng tạo truyện tranh trực tuyến.</p>
           </div>
         </div>
       </div>
@@ -97,282 +218,328 @@ const appStore = useAppStore()
 <style scoped>
 .home-page {
   padding-bottom: var(--spacing-3xl);
-}
-
-/* Hero Section */
-.hero-section {
-  padding: var(--spacing-2xl) 0 var(--spacing-xl);
-  background: linear-gradient(180deg, var(--color-bg-surface) 0%, var(--color-bg) 100%);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.hero-container {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  text-align: center;
 }
 
-.status-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-xs) var(--spacing-md);
-  background-color: var(--color-primary-soft);
-  border: 1px solid var(--color-primary-glow);
-  border-radius: var(--radius-full);
-  color: var(--color-primary);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  margin-bottom: var(--spacing-lg);
+/* Catalog Section */
+.catalog-section {
+  padding: var(--spacing-2xl) 0;
 }
 
-.status-dot {
-  width: 8px;
-  height: 8px;
-  background-color: var(--color-success);
-  border-radius: var(--radius-full);
-  box-shadow: 0 0 8px var(--color-success);
-}
-
-.hero-title {
-  font-size: var(--font-size-3xl);
-  font-weight: var(--font-weight-bold);
-  line-height: var(--line-height-tight);
-  color: var(--color-text-primary);
-  max-width: 800px;
-  margin-bottom: var(--spacing-md);
-}
-
-@media (min-width: 768px) {
-  .hero-title {
-    font-size: var(--font-size-4xl);
-  }
-}
-
-.hero-title .highlight {
-  color: var(--color-primary);
-  text-shadow: 0 0 24px var(--color-primary-glow);
-}
-
-.hero-description {
-  font-size: var(--font-size-base);
-  color: var(--color-text-secondary);
-  max-width: 680px;
-  line-height: var(--line-height-relaxed);
-  margin-bottom: var(--spacing-lg);
-}
-
-@media (min-width: 768px) {
-  .hero-description {
-    font-size: var(--font-size-lg);
-  }
-}
-
-.hero-meta {
+.catalog-header {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-sm);
-  justify-content: center;
-}
-
-.meta-pill {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  background-color: var(--color-bg-card);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  font-size: var(--font-size-xs);
-}
-
-.meta-label {
-  color: var(--color-text-muted);
-}
-
-.meta-val {
-  color: var(--color-text-primary);
-  font-weight: var(--font-weight-medium);
-}
-
-.meta-val code {
-  color: var(--color-primary);
-}
-
-/* Stack Section */
-.stack-section {
-  padding: var(--spacing-2xl) 0 var(--spacing-xl);
-}
-
-.section-header {
-  text-align: center;
+  flex-direction: column;
+  gap: var(--spacing-md);
   margin-bottom: var(--spacing-xl);
-}
-
-.section-title {
-  font-size: var(--font-size-2xl);
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text-primary);
-  margin-bottom: var(--spacing-xs);
-}
-
-.section-subtitle {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  max-width: 600px;
-  margin: 0 auto;
-}
-
-.stack-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--spacing-md);
-}
-
-@media (min-width: 640px) {
-  .stack-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (min-width: 1024px) {
-  .stack-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-.stack-card {
-  background-color: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-lg);
-  transition: all var(--transition-normal);
-  display: flex;
-  flex-direction: column;
-}
-
-.stack-card:hover {
-  background-color: var(--color-bg-card-hover);
-  border-color: var(--color-border-accent);
-  box-shadow: var(--shadow-glow);
-  transform: translateY(-2px);
-}
-
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--spacing-xs);
-}
-
-.card-category {
-  font-size: var(--font-size-xs);
-  color: var(--color-primary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: var(--font-weight-semibold);
-}
-
-.card-status {
-  font-size: var(--font-size-xs);
-  padding: 2px 6px;
-  background-color: var(--color-success-soft);
-  color: var(--color-success);
-  border-radius: var(--radius-xs);
-  font-weight: var(--font-weight-medium);
-}
-
-.card-title {
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text-primary);
-  margin-bottom: 2px;
-}
-
-.card-version {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  font-family: var(--font-family-mono);
-  margin-bottom: var(--spacing-sm);
-}
-
-.card-notes {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  line-height: var(--line-height-normal);
-  margin-top: auto;
-}
-
-/* Info Section */
-.info-section {
-  padding-top: var(--spacing-md);
-}
-
-.info-card {
-  background-color: var(--color-bg-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-xl);
-}
-
-.info-header {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  margin-bottom: var(--spacing-lg);
   padding-bottom: var(--spacing-md);
   border-bottom: 1px solid var(--color-border);
 }
 
-.info-icon {
-  font-size: var(--font-size-3xl);
-  line-height: 1;
+@media (min-width: 768px) {
+  .catalog-header {
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: space-between;
+  }
 }
 
-.info-title {
+.catalog-title {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+  line-height: var(--line-height-tight);
+}
+
+.title-highlight {
+  color: var(--color-primary);
+  text-shadow: 0 0 20px var(--color-primary-glow);
+}
+
+.catalog-subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin-top: 4px;
+}
+
+/* Sort Tabs */
+.sort-tabs {
+  display: flex;
+  gap: var(--spacing-xs);
+  background-color: var(--color-bg-surface);
+  padding: 4px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  align-self: flex-start;
+}
+
+.sort-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.sort-tab-btn:hover:not(:disabled) {
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-elevated);
+}
+
+.sort-tab-btn.active {
+  color: var(--color-primary);
+  background-color: var(--color-primary-soft);
+  font-weight: var(--font-weight-semibold);
+  box-shadow: inset 0 0 0 1px var(--color-primary-glow);
+}
+
+.sort-tab-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tab-icon {
+  font-size: 12px;
+}
+
+/* Comics Grid */
+.comics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-md);
+}
+
+@media (min-width: 640px) {
+  .comics-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (min-width: 768px) {
+  .comics-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .comics-grid {
+    grid-template-columns: repeat(6, 1fr);
+    gap: var(--spacing-lg);
+  }
+}
+
+/* Skeleton Loading Grid */
+.card-skeleton {
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.skeleton-cover {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  background: linear-gradient(90deg, var(--color-bg-elevated) 25%, var(--color-bg-surface) 50%, var(--color-bg-elevated) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s infinite;
+}
+
+.skeleton-info {
+  padding: var(--spacing-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skeleton-line {
+  background: linear-gradient(90deg, var(--color-bg-elevated) 25%, var(--color-bg-surface) 50%, var(--color-bg-elevated) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s infinite;
+  border-radius: var(--radius-xs);
+}
+
+.skeleton-line.title {
+  width: 90%;
+  height: 14px;
+}
+
+.skeleton-line.author {
+  width: 60%;
+  height: 10px;
+}
+
+.skeleton-line.tags {
+  width: 40%;
+  height: 12px;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* State Containers (Error, Empty) */
+.state-container {
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--spacing-2xl) var(--spacing-md);
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  margin: var(--spacing-md) 0;
+}
+
+.state-icon {
+  font-size: 3rem;
+  margin-bottom: var(--spacing-sm);
+}
+
+.state-title {
   font-size: var(--font-size-xl);
   font-weight: var(--font-weight-bold);
   color: var(--color-text-primary);
+  margin-bottom: 4px;
 }
 
-.info-desc {
+.state-desc {
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
-  margin-top: 2px;
+  max-width: 480px;
+  line-height: var(--line-height-relaxed);
+  margin-bottom: var(--spacing-md);
 }
 
-.info-grid {
+.btn-retry {
+  padding: var(--spacing-xs) var(--spacing-xl);
+  background-color: var(--color-primary);
+  color: var(--color-text-inverse);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-glow);
+  transition: all var(--transition-fast);
+}
+
+.btn-retry:hover {
+  background-color: var(--color-primary-hover);
+  transform: translateY(-2px);
+}
+
+/* Pagination */
+.pagination-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-2xl);
+  padding-top: var(--spacing-lg);
+  border-top: 1px solid var(--color-border);
+}
+
+.btn-page {
+  padding: var(--spacing-xs) var(--spacing-md);
+  background-color: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  transition: all var(--transition-fast);
+}
+
+.btn-page:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background-color: var(--color-primary-soft);
+}
+
+.btn-page:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.page-indicator {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.page-indicator strong {
+  color: var(--color-primary);
+}
+
+.total-count {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-left: 4px;
+}
+
+/* Platform Features */
+.platform-features {
+  padding: var(--spacing-2xl) 0 var(--spacing-xl);
+  margin-top: var(--spacing-xl);
+  border-top: 1px solid var(--color-border);
+  background: linear-gradient(180deg, transparent 0%, var(--color-bg-surface) 100%);
+}
+
+.features-grid {
   display: grid;
   grid-template-columns: 1fr;
   gap: var(--spacing-md);
 }
 
 @media (min-width: 768px) {
-  .info-grid {
-    grid-template-columns: repeat(2, 1fr);
+  .features-grid {
+    grid-template-columns: repeat(3, 1fr);
   }
 }
 
-.info-item {
+.feature-card {
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--spacing-xs);
+  transition: transform var(--transition-normal);
 }
 
-.info-key {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  font-weight: var(--font-weight-medium);
+.feature-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-border-accent);
 }
 
-.info-value {
-  font-size: var(--font-size-sm);
+.feature-icon {
+  font-size: var(--font-size-2xl);
+  margin-bottom: 2px;
+}
+
+.feature-title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-bold);
   color: var(--color-text-primary);
 }
 
-.info-value code {
-  color: var(--color-primary);
+.feature-desc {
   font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  line-height: var(--line-height-relaxed);
 }
 </style>
