@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import { CatalogService } from '@/services/catalogService'
 import { ReaderHistoryService } from '@/services/readerHistoryService'
 import { getErrorMessage, isNotFoundError } from '@/services/httpClient'
@@ -14,6 +15,7 @@ import {
 } from '@/utils/chapter'
 
 const route = useRoute()
+const authStore = useAuthStore()
 
 // Data states
 const comic = ref<ComicDetail | null>(null)
@@ -52,11 +54,15 @@ const latestChapter = computed(() => {
   return getLatestChapter(chapters.value)
 })
 
-// Check local reading history and verify that the chapter is still in published chapters
+// Check local reading history scoped by active user identity
 const lastReadChapter = computed<ChapterSummary | null>(() => {
   void historyTick.value
+  // When session is being initialized/restored, wait until identity is confirmed
+  if (!authStore.isInitialized) return null
   if (!comic.value || !chapters.value || chapters.value.length === 0) return null
-  const history = ReaderHistoryService.getLastRead(comic.value.slug)
+
+  const currentUserId = authStore.user?.id ?? null
+  const history = ReaderHistoryService.getLastRead(comic.value.slug, currentUserId)
   if (!history) return null
   return (
     chapters.value.find(
@@ -64,6 +70,14 @@ const lastReadChapter = computed<ChapterSummary | null>(() => {
     ) || null
   )
 })
+
+// Trigger re-computation of reading history when auth state or user changes
+watch(
+  () => [authStore.user?.id, authStore.isInitialized],
+  () => {
+    historyTick.value++
+  }
+)
 
 // Primary action target: continues from last read if valid, otherwise starts from first published chapter
 const primaryChapter = computed<ChapterSummary | null>(() => {

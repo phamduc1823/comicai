@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import { CatalogService } from '@/services/catalogService'
 import { ReaderHistoryService } from '@/services/readerHistoryService'
 import { getErrorMessage, isNotFoundError } from '@/services/httpClient'
@@ -9,6 +10,7 @@ import { formatChapterNumber, buildChapterUrl, compareChapterNumbers } from '@/u
 
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
 
 // Data states
 const chapter = ref<ChapterReader | null>(null)
@@ -132,6 +134,8 @@ function navigateToChapter(chapterNumber: string | number) {
  */
 async function loadChapterReader(slug: string, chapterNumber: string) {
   const requestId = ++latestRequestId
+  // Capture user identity at request initiation to prevent race conditions across account switches
+  const initiatedUserId = authStore.user?.id ?? null
   isLoading.value = true
   errorMessage.value = null
   isNotFound.value = false
@@ -151,11 +155,18 @@ async function loadChapterReader(slug: string, chapterNumber: string) {
       const chapName = response.data.title ? ` - ${response.data.title}` : ''
       document.title = `Chương ${numLabel}${chapName} • ${response.data.comic.title} — BlueToon`
 
-      // Save reading history for this comic upon verified successful load
-      if (response.data?.comic?.slug && response.data?.chapter_number) {
+      // Save reading history for this comic upon verified successful load,
+      // strictly ensuring user identity has not changed in-flight (preventing cross-user race condition)
+      const currentUserId = authStore.user?.id ?? null
+      if (
+        response.data?.comic?.slug &&
+        response.data?.chapter_number &&
+        currentUserId === initiatedUserId
+      ) {
         ReaderHistoryService.saveLastRead(
           response.data.comic.slug,
-          response.data.chapter_number
+          response.data.chapter_number,
+          currentUserId
         )
       }
 
