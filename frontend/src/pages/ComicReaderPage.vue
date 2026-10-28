@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { CatalogService } from '@/services/catalogService'
+import { ReaderHistoryService } from '@/services/readerHistoryService'
 import { getErrorMessage, isNotFoundError } from '@/services/httpClient'
-import type { ChapterReader } from '@/types/catalog'
+import type { ChapterReader, ChapterSummary } from '@/types/catalog'
+import { formatChapterNumber, buildChapterUrl, compareChapterNumbers } from '@/utils/chapter'
 
 const route = useRoute()
 const router = useRouter()
@@ -16,16 +18,29 @@ const notFoundMessage = ref('')
 const errorMessage = ref<string | null>(null)
 const failedPages = ref<Record<number, boolean>>({})
 
+// Chapter Selector State
+const selectorRef = ref<HTMLElement | null>(null)
+const dropdownRef = ref<HTMLElement | null>(null)
+const isSelectorOpen = ref(false)
+const chapterList = ref<ChapterSummary[]>([])
+const cachedComicSlug = ref<string>('')
+const isLoadingChapters = ref(false)
+const chapterListError = ref<string | null>(null)
+
 let latestRequestId = 0
 
-// Formatting helpers
-function formatChapterNumber(rawNumber: string): string {
-  const parsed = parseFloat(rawNumber)
-  if (!isNaN(parsed)) {
-    return Number.isInteger(parsed) ? parsed.toString() : parsed.toFixed(2)
-  }
-  return rawNumber
-}
+// Sorted images by page_number ascending
+const sortedImages = computed(() => {
+  if (!chapter.value?.images || chapter.value.images.length === 0) return []
+  return [...chapter.value.images].sort((a, b) => a.page_number - b.page_number)
+})
+
+// Sorted published chapter list for selector (ascending order)
+const sortedChapterList = computed(() => {
+  return [...chapterList.value].sort((a, b) =>
+    compareChapterNumbers(a.chapter_number, b.chapter_number)
+  )
+})
 
 // Display chapter title label
 const chapterDisplayTitle = computed(() => {
@@ -36,6 +51,80 @@ const chapterDisplayTitle = computed(() => {
 
 function handlePageError(imageId: number) {
   failedPages.value[imageId] = true
+}
+
+/**
+ * Fetch chapter list for quick selector, with caching per comic slug.
+ */
+async function fetchChapterList(slug: string, force = false) {
+  if (!slug) return
+  if (!force && cachedComicSlug.value === slug && chapterList.value.length > 0) {
+    return
+  }
+
+  isLoadingChapters.value = true
+  chapterListError.value = null
+
+  try {
+    const response = await CatalogService.getChapters(slug)
+    chapterList.value = response.data || []
+    cachedComicSlug.value = slug
+  } catch (error: unknown) {
+    chapterListError.value = getErrorMessage(
+      error,
+      'Không thể tải danh sách chương truyện.'
+    )
+  } finally {
+    isLoadingChapters.value = false
+  }
+}
+
+/**
+ * Check if a chapter number matches the current chapter being read.
+ */
+function isCurrentChapter(chapterNum: string | number): boolean {
+  if (!chapter.value?.chapter_number) return false
+  return compareChapterNumbers(chapterNum, chapter.value.chapter_number) === 0
+}
+
+/**
+ * Toggle chapter selector dropdown
+ */
+function toggleSelector() {
+  isSelectorOpen.value = !isSelectorOpen.value
+  if (isSelectorOpen.value) {
+    const slug = chapter.value?.comic?.slug || String(route.params.slug || '')
+    if (slug) {
+      fetchChapterList(slug)
+    }
+    // Scroll active item into view on open
+    nextTick(() => {
+      const activeEl = dropdownRef.value?.querySelector('.chapter-option-item.is-active')
+      if (activeEl) {
+        activeEl.scrollIntoView({ block: 'nearest' })
+      }
+    })
+  }
+}
+
+/**
+ * Select a chapter from the dropdown
+ */
+function onSelectChapter(chapterNum: string | number) {
+  isSelectorOpen.value = false
+  if (isCurrentChapter(chapterNum)) return
+  if (!chapter.value?.comic?.slug) return
+  navigateToChapter(chapterNum)
+}
+
+/**
+ * Navigate to a specific chapter and instantly reset scroll
+ */
+function navigateToChapter(chapterNumber: string | number) {
+  if (!chapter.value?.comic?.slug) return
+  isSelectorOpen.value = false
+  const targetUrl = buildChapterUrl(chapter.value.comic.slug, chapterNumber)
+  router.push(targetUrl)
 }
 
 /**
@@ -54,10 +143,26 @@ async function loadChapterReader(slug: string, chapterNumber: string) {
     if (requestId === latestRequestId) {
       chapter.value = response.data
 
+      // Instantly reset reader scroll position to top
+      window.scrollTo(0, 0)
+
       // Update document title
       const numLabel = formatChapterNumber(response.data.chapter_number)
       const chapName = response.data.title ? ` - ${response.data.title}` : ''
       document.title = `Chương ${numLabel}${chapName} • ${response.data.comic.title} — BlueToon`
+
+      // Save reading history for this comic upon verified successful load
+      if (response.data?.comic?.slug && response.data?.chapter_number) {
+        ReaderHistoryService.saveLastRead(
+          response.data.comic.slug,
+          response.data.chapter_number
+        )
+      }
+
+      // Prefetch chapters list in background if not already cached for this comic
+      if (cachedComicSlug.value !== response.data.comic.slug) {
+        fetchChapterList(response.data.comic.slug)
+      }
     }
   } catch (error: unknown) {
     if (requestId === latestRequestId) {
@@ -89,21 +194,54 @@ function handleRetry() {
   }
 }
 
+function handleClickOutside(event: MouseEvent) {
+  if (
+    isSelectorOpen.value &&
+    selectorRef.value &&
+    !selectorRef.value.contains(event.target as Node)
+  ) {
+    isSelectorOpen.value = false
+  }
+}
+
 function handleKeyDown(event: KeyboardEvent) {
-  // Ignore if user is interacting with form controls
-  const activeTag = (document.activeElement?.tagName || '').toLowerCase()
-  if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') {
+  // If dropdown is open and user presses Escape, close it
+  if (isSelectorOpen.value && event.key === 'Escape') {
+    isSelectorOpen.value = false
+    return
+  }
+
+  // Ignore if user is interacting with form controls or contenteditable elements
+  const target = event.target as HTMLElement | null
+  const activeEl = document.activeElement as HTMLElement | null
+  const activeTag = (activeEl?.tagName || '').toLowerCase()
+  const targetTag = (target?.tagName || '').toLowerCase()
+
+  const isInteractive =
+    activeTag === 'input' ||
+    activeTag === 'textarea' ||
+    activeTag === 'select' ||
+    targetTag === 'input' ||
+    targetTag === 'textarea' ||
+    targetTag === 'select' ||
+    Boolean(activeEl?.isContentEditable) ||
+    Boolean(target?.isContentEditable)
+
+  if (isInteractive) {
+    return
+  }
+
+  // If selector dropdown is open, do not trigger arrow navigation
+  if (isSelectorOpen.value) {
     return
   }
 
   if (event.key === 'ArrowLeft' && chapter.value?.prev_chapter) {
-    router.push(
-      `/comics/${chapter.value.comic.slug}/chapters/${chapter.value.prev_chapter.chapter_number}`
-    )
+    event.preventDefault()
+    navigateToChapter(chapter.value.prev_chapter.chapter_number)
   } else if (event.key === 'ArrowRight' && chapter.value?.next_chapter) {
-    router.push(
-      `/comics/${chapter.value.comic.slug}/chapters/${chapter.value.next_chapter.chapter_number}`
-    )
+    event.preventDefault()
+    navigateToChapter(chapter.value.next_chapter.chapter_number)
   }
 }
 
@@ -112,8 +250,9 @@ watch(
   () => [route.params.slug, route.params.chapterNumber],
   ([newSlug, newChapter]) => {
     if (newSlug && newChapter) {
+      isSelectorOpen.value = false
+      window.scrollTo(0, 0)
       loadChapterReader(String(newSlug), String(newChapter))
-      window.scrollTo({ top: 0, behavior: 'smooth' })
     }
   }
 )
@@ -125,10 +264,12 @@ onMounted(() => {
     loadChapterReader(slug, chapterNumber)
   }
   window.addEventListener('keydown', handleKeyDown)
+  window.addEventListener('click', handleClickOutside)
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
+  window.removeEventListener('click', handleClickOutside)
 })
 </script>
 
@@ -206,11 +347,89 @@ onUnmounted(() => {
             <span class="back-text">{{ chapter.comic.title }}</span>
           </RouterLink>
 
-          <!-- Chapter Info -->
-          <div class="top-chapter-info">
-            <h1 class="top-chapter-title" :title="chapterDisplayTitle">
-              {{ chapterDisplayTitle }}
-            </h1>
+          <!-- Chapter Info & Quick Selector -->
+          <div ref="selectorRef" class="top-chapter-selector-wrapper">
+            <button
+              type="button"
+              class="chapter-selector-trigger"
+              :class="{ 'is-open': isSelectorOpen }"
+              :aria-expanded="isSelectorOpen"
+              aria-haspopup="listbox"
+              aria-label="Chọn chương nhanh"
+              @click.stop="toggleSelector"
+            >
+              <span class="selector-icon" aria-hidden="true">📖</span>
+              <span class="selector-current-label">
+                Chương {{ formatChapterNumber(chapter.chapter_number) }}
+              </span>
+              <span v-if="chapter.title" class="selector-current-title">
+                : {{ chapter.title }}
+              </span>
+              <span class="selector-chevron" aria-hidden="true">{{ isSelectorOpen ? '▲' : '▼' }}</span>
+            </button>
+
+            <!-- Dropdown Popover List -->
+            <transition name="dropdown-fade">
+              <div
+                v-if="isSelectorOpen"
+                ref="dropdownRef"
+                class="chapter-dropdown-menu"
+                role="listbox"
+                :aria-label="'Danh sách chương ' + chapter.comic.title"
+              >
+                <div class="dropdown-header">
+                  <span class="dropdown-header-title">Danh sách chương</span>
+                  <span class="dropdown-header-count">({{ sortedChapterList.length }})</span>
+                </div>
+
+                <!-- Loading State -->
+                <div v-if="isLoadingChapters" class="dropdown-state-item" role="status">
+                  <span class="dropdown-state-icon" aria-hidden="true">⏳</span>
+                  <span>Đang tải danh sách chương...</span>
+                </div>
+
+                <!-- Error State -->
+                <div v-else-if="chapterListError" class="dropdown-state-item error" role="alert">
+                  <span class="dropdown-state-icon" aria-hidden="true">⚠️</span>
+                  <span>{{ chapterListError }}</span>
+                  <button
+                    type="button"
+                    class="btn-retry-mini"
+                    @click.stop="fetchChapterList(chapter.comic.slug, true)"
+                  >
+                    Thử lại
+                  </button>
+                </div>
+
+                <!-- Empty State -->
+                <div v-else-if="sortedChapterList.length === 0" class="dropdown-state-item">
+                  <span class="dropdown-state-icon" aria-hidden="true">📭</span>
+                  <span>Chưa có chương nào xuất bản.</span>
+                </div>
+
+                <!-- Chapter Options List -->
+                <div v-else class="chapter-options-list">
+                  <button
+                    v-for="chapItem in sortedChapterList"
+                    :key="chapItem.id"
+                    type="button"
+                    role="option"
+                    :aria-selected="isCurrentChapter(chapItem.chapter_number)"
+                    class="chapter-option-item"
+                    :class="{ 'is-active': isCurrentChapter(chapItem.chapter_number) }"
+                    @click="onSelectChapter(chapItem.chapter_number)"
+                  >
+                    <div class="option-left">
+                      <span class="option-num">Chương {{ formatChapterNumber(chapItem.chapter_number) }}</span>
+                      <span v-if="chapItem.title" class="option-title">{{ chapItem.title }}</span>
+                    </div>
+                    <span v-if="isCurrentChapter(chapItem.chapter_number)" class="option-badge">
+                      Đang đọc
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </transition>
           </div>
 
           <!-- Top Navigation Controls -->
@@ -218,7 +437,7 @@ onUnmounted(() => {
             <!-- Prev Chapter Link -->
             <RouterLink
               v-if="chapter.prev_chapter"
-              :to="'/comics/' + chapter.comic.slug + '/chapters/' + chapter.prev_chapter.chapter_number"
+              :to="buildChapterUrl(chapter.comic.slug, chapter.prev_chapter.chapter_number)"
               class="nav-btn btn-prev"
               :aria-label="'Chương trước: Chương ' + formatChapterNumber(chapter.prev_chapter.chapter_number)"
               title="Chương trước (Phím mũi tên trái ←)"
@@ -232,7 +451,7 @@ onUnmounted(() => {
             <!-- Next Chapter Link -->
             <RouterLink
               v-if="chapter.next_chapter"
-              :to="'/comics/' + chapter.comic.slug + '/chapters/' + chapter.next_chapter.chapter_number"
+              :to="buildChapterUrl(chapter.comic.slug, chapter.next_chapter.chapter_number)"
               class="nav-btn btn-next active"
               :aria-label="'Chương tiếp theo: Chương ' + formatChapterNumber(chapter.next_chapter.chapter_number)"
               title="Chương sau (Phím mũi tên phải →)"
@@ -260,7 +479,7 @@ onUnmounted(() => {
         <!-- Sequential Reading Pages -->
         <div v-else class="pages-wrapper">
           <div
-            v-for="img in chapter.images"
+            v-for="img in sortedImages"
             :key="img.id"
             class="reading-page-block"
           >
@@ -296,7 +515,7 @@ onUnmounted(() => {
               <!-- Prev Chapter -->
               <RouterLink
                 v-if="chapter.prev_chapter"
-                :to="'/comics/' + chapter.comic.slug + '/chapters/' + chapter.prev_chapter.chapter_number"
+                :to="buildChapterUrl(chapter.comic.slug, chapter.prev_chapter.chapter_number)"
                 class="bottom-btn btn-prev-large"
                 :aria-label="'Đọc Chương ' + formatChapterNumber(chapter.prev_chapter.chapter_number)"
               >
@@ -315,7 +534,7 @@ onUnmounted(() => {
               <!-- Next Chapter -->
               <RouterLink
                 v-if="chapter.next_chapter"
-                :to="'/comics/' + chapter.comic.slug + '/chapters/' + chapter.next_chapter.chapter_number"
+                :to="buildChapterUrl(chapter.comic.slug, chapter.next_chapter.chapter_number)"
                 class="bottom-btn btn-next-large"
                 :aria-label="'Đọc tiếp Chương ' + formatChapterNumber(chapter.next_chapter.chapter_number)"
               >
@@ -528,19 +747,213 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.top-chapter-info {
+/* Chapter Selector in Top Bar */
+.top-chapter-selector-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: 1;
-  text-align: center;
+  min-width: 0;
   padding: 0 var(--spacing-xs);
 }
 
-.top-chapter-title {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-bold);
+.chapter-selector-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 32px;
+  padding: 0 var(--spacing-sm);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.chapter-selector-trigger:hover,
+.chapter-selector-trigger.is-open {
+  border-color: var(--color-primary);
+  background-color: var(--color-bg-elevated);
+}
+
+.selector-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.selector-current-label {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.selector-current-title {
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-normal);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.selector-chevron {
+  font-size: 8px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+/* Dropdown Menu */
+.chapter-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 320px;
+  max-width: 90vw;
+  max-height: 360px;
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg), 0 0 20px rgba(0, 0, 0, 0.4);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dropdown-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-bg-elevated);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.dropdown-header-count {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.dropdown-state-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: var(--spacing-lg) var(--spacing-sm);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
+.dropdown-state-item.error {
+  color: var(--color-error);
+  flex-direction: column;
+}
+
+.btn-retry-mini {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+.chapter-options-list {
+  overflow-y: auto;
+  max-height: 300px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chapter-option-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.chapter-option-item:hover {
+  background-color: var(--color-bg-elevated);
+  color: var(--color-primary);
+}
+
+.chapter-option-item.is-active {
+  background-color: rgba(99, 102, 241, 0.12);
+  color: var(--color-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.option-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.option-num {
+  font-weight: var(--font-weight-medium);
+}
+
+.option-title {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.option-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: var(--font-weight-bold);
+  background-color: var(--color-primary);
+  color: #ffffff;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+/* Dropdown Animation */
+.dropdown-fade-enter-active,
+.dropdown-fade-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.dropdown-fade-enter-from,
+.dropdown-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-6px);
 }
 
 .top-nav-controls {
@@ -780,7 +1193,14 @@ onUnmounted(() => {
 
 @media (max-width: 640px) {
   .top-back-link {
-    max-width: 120px;
+    max-width: 90px;
+  }
+  .selector-current-title {
+    display: none;
+  }
+  .chapter-dropdown-menu {
+    width: calc(100vw - 20px);
+    max-width: 320px;
   }
   .bottom-actions {
     flex-direction: column;

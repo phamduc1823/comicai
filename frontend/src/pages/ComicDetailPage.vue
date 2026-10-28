@@ -2,8 +2,16 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { CatalogService } from '@/services/catalogService'
+import { ReaderHistoryService } from '@/services/readerHistoryService'
 import { getErrorMessage, isNotFoundError } from '@/services/httpClient'
 import type { ComicDetail, ChapterSummary } from '@/types/catalog'
+import {
+  formatChapterNumber,
+  compareChapterNumbers,
+  getFirstChapter,
+  getLatestChapter,
+  buildChapterUrl,
+} from '@/utils/chapter'
 
 const route = useRoute()
 
@@ -21,28 +29,52 @@ const coverImageError = ref(false)
 const bannerImageError = ref(false)
 const creatorAvatarError = ref(false)
 const isDescriptionExpanded = ref(false)
-const sortDescending = ref(false) // default ASC as returned by backend
+const sortDescending = ref(false) // default ASC
 
 let latestRequestId = 0
+const historyTick = ref(0)
 
-// Computed chapters list based on user display sort preference
+// Computed chapters list sorted numerically
 const sortedChapters = computed(() => {
   if (!chapters.value || chapters.value.length === 0) return []
-  if (sortDescending.value) {
-    return [...chapters.value].reverse()
-  }
-  return chapters.value
+  const sorted = [...chapters.value].sort((a, b) =>
+    compareChapterNumbers(a.chapter_number, b.chapter_number)
+  )
+  return sortDescending.value ? sorted.reverse() : sorted
 })
 
-// First and latest chapters for quick action buttons
+// First and latest chapters computed mathematically by numeric chapter number
 const firstChapter = computed(() => {
-  if (!chapters.value || chapters.value.length === 0) return null
-  return chapters.value[0]
+  return getFirstChapter(chapters.value)
 })
 
 const latestChapter = computed(() => {
-  if (!chapters.value || chapters.value.length === 0) return null
-  return chapters.value[chapters.value.length - 1]
+  return getLatestChapter(chapters.value)
+})
+
+// Check local reading history and verify that the chapter is still in published chapters
+const lastReadChapter = computed<ChapterSummary | null>(() => {
+  void historyTick.value
+  if (!comic.value || !chapters.value || chapters.value.length === 0) return null
+  const history = ReaderHistoryService.getLastRead(comic.value.slug)
+  if (!history) return null
+  return (
+    chapters.value.find(
+      (c) => compareChapterNumbers(c.chapter_number, history.chapterNumber) === 0
+    ) || null
+  )
+})
+
+// Primary action target: continues from last read if valid, otherwise starts from first published chapter
+const primaryChapter = computed<ChapterSummary | null>(() => {
+  return lastReadChapter.value || firstChapter.value
+})
+
+// Whether to show the secondary "latest chapter" button
+const showLatestButton = computed<boolean>(() => {
+  if (!latestChapter.value || !primaryChapter.value) return false
+  // Avoid duplicate button if only 1 chapter exists or primary button already points to latest chapter
+  return latestChapter.value.id !== primaryChapter.value.id
 })
 
 // Computed status display
@@ -67,14 +99,7 @@ function formatViews(views: number): string {
   return views.toLocaleString('vi-VN')
 }
 
-function formatChapterNumber(rawNumber: string): string {
-  const parsed = parseFloat(rawNumber)
-  if (!isNaN(parsed)) {
-    // If it's a whole number, show without trailing zeros (e.g. 1 instead of 1.00)
-    return Number.isInteger(parsed) ? parsed.toString() : parsed.toFixed(2)
-  }
-  return rawNumber
-}
+
 
 function formatDate(isoString: string | null): string {
   if (!isoString) return ''
@@ -117,6 +142,7 @@ async function loadComicData(slug: string) {
         // Fallback: fetch chapters via dedicated endpoint
         await fetchChapters(slug, requestId)
       }
+      historyTick.value++
     }
   } catch (error: unknown) {
     if (requestId === latestRequestId) {
@@ -149,6 +175,7 @@ async function fetchChapters(slug: string, requestId: number) {
     const response = await CatalogService.getChapters(slug)
     if (requestId === latestRequestId) {
       chapters.value = response.data || []
+      historyTick.value++
     }
   } catch {
     // Non-fatal, use whatever chapters were in detail resource
@@ -388,24 +415,33 @@ onMounted(() => {
 
               <!-- Action Call to Reads -->
               <div class="cta-actions">
-                <template v-if="firstChapter">
-                  <!-- Destination route /comics/:slug/chapters/:chapterNumber dependency on CAI-020 -->
+                <template v-if="primaryChapter">
+                  <!-- Primary Action: Đọc tiếp if history exists, else Đọc ngay -->
                   <RouterLink
-                    :to="'/comics/' + comic.slug + '/chapters/' + firstChapter.chapter_number"
+                    :to="buildChapterUrl(comic.slug, primaryChapter.chapter_number)"
                     class="btn-read-first"
-                    :aria-label="'Đọc chương đầu: Chương ' + formatChapterNumber(firstChapter.chapter_number)"
+                    :class="{ 'btn-read-continue': !!lastReadChapter }"
+                    :aria-label="
+                      (lastReadChapter ? 'Đọc tiếp' : 'Đọc ngay') +
+                      ': Chương ' +
+                      formatChapterNumber(primaryChapter.chapter_number)
+                    "
                   >
-                    <span class="btn-icon" aria-hidden="true">📖</span>
-                    <span>Đọc từ đầu (C.{{ formatChapterNumber(firstChapter.chapter_number) }})</span>
+                    <span class="btn-icon" aria-hidden="true">{{ lastReadChapter ? '🔖' : '📖' }}</span>
+                    <span>
+                      {{ lastReadChapter ? 'Đọc tiếp' : 'Đọc ngay' }}
+                      (C.{{ formatChapterNumber(primaryChapter.chapter_number) }})
+                    </span>
                   </RouterLink>
 
+                  <!-- Secondary Action: Đọc chương mới nhất only if different from primary target -->
                   <RouterLink
-                    v-if="latestChapter && latestChapter.id !== firstChapter.id"
-                    :to="'/comics/' + comic.slug + '/chapters/' + latestChapter.chapter_number"
+                    v-if="latestChapter && showLatestButton"
+                    :to="buildChapterUrl(comic.slug, latestChapter.chapter_number)"
                     class="btn-read-latest"
                     :aria-label="'Đọc chương mới nhất: Chương ' + formatChapterNumber(latestChapter.chapter_number)"
                   >
-                    <span>Mới nhất (C.{{ formatChapterNumber(latestChapter.chapter_number) }})</span>
+                    <span>Đọc chương mới nhất (C.{{ formatChapterNumber(latestChapter.chapter_number) }})</span>
                   </RouterLink>
                 </template>
 
@@ -480,25 +516,34 @@ onMounted(() => {
 
           <!-- Chapters Grid / List -->
           <div v-else class="chapters-grid">
-            <!-- Destination route /comics/:slug/chapters/:chapterNumber dependency on CAI-020 -->
             <RouterLink
               v-for="chap in sortedChapters"
               :key="chap.id"
-              :to="'/comics/' + comic.slug + '/chapters/' + chap.chapter_number"
+              :to="buildChapterUrl(comic.slug, chap.chapter_number)"
               class="chapter-card"
+              :class="{ 'chapter-card-last-read': lastReadChapter && lastReadChapter.id === chap.id }"
               :aria-label="'Đọc Chương ' + formatChapterNumber(chap.chapter_number) + (chap.title ? ': ' + chap.title : '')"
             >
               <div class="chapter-info">
-                <span class="chapter-num">
-                  Chương {{ formatChapterNumber(chap.chapter_number) }}
-                </span>
+                <div class="chapter-num-row">
+                  <span class="chapter-num">
+                    Chương {{ formatChapterNumber(chap.chapter_number) }}
+                  </span>
+                  <span
+                    v-if="lastReadChapter && lastReadChapter.id === chap.id"
+                    class="badge-last-read"
+                    title="Chương bạn vừa đọc gần nhất"
+                  >
+                    Đang đọc
+                  </span>
+                </div>
                 <span v-if="chap.title" class="chapter-name" :title="chap.title">
                   {{ chap.title }}
                 </span>
               </div>
 
               <div class="chapter-meta">
-                <span v-if="chap.views_count" class="chap-views" :title="chap.views_count + ' lượt xem'">
+                <span v-if="chap.views_count !== undefined && chap.views_count !== null" class="chap-views" :title="chap.views_count + ' lượt xem'">
                   👁 {{ formatViews(chap.views_count) }}
                 </span>
                 <span v-if="chap.created_at" class="chap-date">
@@ -1357,6 +1402,32 @@ onMounted(() => {
   gap: 2px;
   overflow: hidden;
   padding-right: var(--spacing-xs);
+}
+
+.chapter-num-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chapter-card-last-read {
+  border-color: var(--color-primary);
+  background-color: rgba(99, 102, 241, 0.08);
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.15);
+}
+
+.badge-last-read {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: var(--font-weight-bold);
+  background-color: var(--color-primary);
+  color: #ffffff;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
 }
 
 .chapter-num {
