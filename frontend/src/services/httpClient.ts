@@ -20,7 +20,7 @@ export const httpClient = axios.create({
   xsrfHeaderName: 'X-XSRF-TOKEN',
 })
 
-// Request interceptor to handle root endpoints (like /sanctum/csrf-cookie)
+// Request interceptor to handle root endpoints (like /sanctum/csrf-cookie) and multipart FormData
 httpClient.interceptors.request.use((config) => {
   // If requesting /sanctum, point directly to root to bypass /api baseURL
   if (config.url?.startsWith('/sanctum')) {
@@ -29,6 +29,14 @@ httpClient.interceptors.request.use((config) => {
     // If URL already includes baseURL, strip it to avoid duplication (/api/api/...)
     config.url = config.url.slice(config.baseURL.length) || '/'
   }
+
+  // If payload is FormData, remove default application/json header so Axios/browser
+  // automatically generates 'multipart/form-data; boundary=...' with the correct boundary parameter.
+  if (typeof FormData !== 'undefined' && config.data instanceof FormData && config.headers) {
+    delete config.headers['Content-Type']
+    delete config.headers['content-type']
+  }
+
   return config
 })
 
