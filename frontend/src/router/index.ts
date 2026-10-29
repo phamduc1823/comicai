@@ -65,6 +65,88 @@ const router = createRouter({
         guestOnly: true,
       },
     },
+    {
+      path: '/creator',
+      redirect: '/creator/comics',
+    },
+    {
+      path: '/creator/comics',
+      name: 'creator-comics',
+      component: () => import('@/pages/creator/CreatorComicsPage.vue'),
+      meta: {
+        title: 'Truyện của tôi — BlueToon Studio',
+        requiresAuth: true,
+        roles: ['creator', 'admin'],
+      },
+    },
+    {
+      path: '/creator/comics/create',
+      name: 'creator-comic-create',
+      component: () => import('@/pages/creator/CreatorComicFormPage.vue'),
+      meta: {
+        title: 'Đăng truyện mới — BlueToon Studio',
+        requiresAuth: true,
+        roles: ['creator', 'admin'],
+      },
+    },
+    {
+      path: '/creator/comics/:id/edit',
+      name: 'creator-comic-edit',
+      component: () => import('@/pages/creator/CreatorComicFormPage.vue'),
+      meta: {
+        title: 'Chỉnh sửa truyện — BlueToon Studio',
+        requiresAuth: true,
+        roles: ['creator', 'admin'],
+      },
+    },
+    {
+      path: '/creator/comics/:comicId/chapters',
+      name: 'creator-comic-chapters',
+      component: () => import('@/pages/creator/CreatorChaptersPage.vue'),
+      meta: {
+        title: 'Quản lý chương — BlueToon Studio',
+        requiresAuth: true,
+        roles: ['creator', 'admin'],
+      },
+    },
+    {
+      path: '/creator/chapters/:id/images',
+      name: 'creator-chapter-images',
+      component: () => import('@/pages/creator/CreatorChapterImagesPage.vue'),
+      meta: {
+        title: 'Quản lý ảnh chương — BlueToon Studio',
+        requiresAuth: true,
+        roles: ['creator', 'admin'],
+      },
+    },
+    {
+      path: '/admin',
+      redirect: '/admin/moderation/comics',
+    },
+    {
+      path: '/admin/moderation',
+      redirect: '/admin/moderation/comics',
+    },
+    {
+      path: '/admin/moderation/comics',
+      name: 'admin-moderation-comics',
+      component: () => import('@/pages/admin/AdminComicsModerationPage.vue'),
+      meta: {
+        title: 'Duyệt truyện — BlueToon Admin',
+        requiresAuth: true,
+        roles: ['admin'],
+      },
+    },
+    {
+      path: '/admin/moderation/chapters',
+      name: 'admin-moderation-chapters',
+      component: () => import('@/pages/admin/AdminChaptersModerationPage.vue'),
+      meta: {
+        title: 'Duyệt chương — BlueToon Admin',
+        requiresAuth: true,
+        roles: ['admin'],
+      },
+    },
   ],
 })
 

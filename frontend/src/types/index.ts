@@ -23,3 +23,5 @@ export interface ApiHealthResponse {
 
 export * from './auth'
 export * from './catalog'
+export * from './creator'
+export * from './admin'

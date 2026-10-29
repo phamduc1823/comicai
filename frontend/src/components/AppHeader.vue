@@ -118,6 +118,24 @@ async function handleLogout() {
             </div>
           </div>
 
+          <RouterLink
+            v-if="authStore.isCreator || authStore.isAdmin"
+            to="/creator/comics"
+            class="btn-studio-shortcut"
+            title="Khu vực sáng tác và quản lý truyện"
+          >
+            <span>Studio ✍️</span>
+          </RouterLink>
+
+          <RouterLink
+            v-if="authStore.isAdmin"
+            to="/admin/moderation/comics"
+            class="btn-admin-shortcut"
+            title="Khu vực kiểm duyệt quản trị viên"
+          >
+            <span>Admin 🛡️</span>
+          </RouterLink>
+
           <button
             type="button"
             class="btn-logout"
@@ -331,6 +349,50 @@ async function handleLogout() {
 
 .role-badge.role-reader {
   color: var(--color-primary);
+}
+
+.btn-studio-shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 var(--spacing-sm);
+  background-color: var(--color-primary-soft);
+  color: var(--color-primary);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  transition: all var(--transition-fast);
+}
+
+.btn-studio-shortcut:hover {
+  background-color: var(--color-primary);
+  color: var(--color-text-inverse);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+}
+
+.btn-admin-shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 var(--spacing-sm);
+  background-color: var(--color-warning-soft);
+  color: var(--color-warning);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  transition: all var(--transition-fast);
+}
+
+.btn-admin-shortcut:hover {
+  background-color: var(--color-warning);
+  color: var(--color-bg-base);
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.35);
 }
 
 .btn-logout {
