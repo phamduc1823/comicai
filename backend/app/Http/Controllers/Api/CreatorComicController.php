@@ -268,9 +268,13 @@ class CreatorComicController extends Controller
                     }
 
                     // Critical changes are queued into pending_changes:
-                    $tagIds = isset($validated['tags'])
-                        ? array_values(array_unique($validated['tags']))
-                        : $locked->tags->pluck('id')->all();
+                    $genreIds = isset($validated['genres']) && is_array($validated['genres'])
+                        ? array_values(array_unique(array_map('intval', $validated['genres'])))
+                        : $locked->genres->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+                    $tagIds = isset($validated['tags']) && is_array($validated['tags'])
+                        ? array_values(array_unique(array_map('intval', $validated['tags'])))
+                        : $locked->tags->pluck('id')->map(fn ($id) => (int) $id)->all();
 
                     $locked->pending_changes = [
                         'title' => $validated['title'] ?? $locked->title,
@@ -278,6 +282,7 @@ class CreatorComicController extends Controller
                         'description' => array_key_exists('description', $validated) ? $validated['description'] : $locked->description,
                         'cover_path' => $newCoverPath ?? $locked->cover_path,
                         'age_rating' => $validated['age_rating'] ?? $locked->age_rating,
+                        'genres' => $genreIds,
                         'tags' => $tagIds,
                         'submitted_at' => now()->toIso8601String(),
                     ];

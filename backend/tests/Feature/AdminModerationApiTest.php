@@ -424,9 +424,13 @@ class AdminModerationApiTest extends TestCase
             'cover_path' => $publicCover,
         ]);
         $comic->approval_status = 'approved';
+        $comic->save();
+        $comic->genres()->sync([$this->actionGenre->id]);
+        $otherGenre = Genre::create(['name' => 'Kinh Dị', 'slug' => 'kinh-di', 'is_active' => true]);
         $comic->pending_changes = [
             'title' => 'Tên Rác',
             'cover_path' => $proposedCover,
+            'genres' => [$otherGenre->id],
         ];
         $comic->save();
 
@@ -440,12 +444,14 @@ class AdminModerationApiTest extends TestCase
             'message' => 'Từ chối bản chỉnh sửa của bộ truyện thành công.',
         ]);
 
-        $fresh = $comic->fresh();
+        $fresh = $comic->fresh(['genres']);
         // Public fields remain strictly untouched
         $this->assertSame('Tên Công Khai', $fresh->title);
         $this->assertSame($publicCover, $fresh->cover_path);
         $this->assertNull($fresh->pending_changes);
         $this->assertSame('Tên đề xuất chứa ký tự không phù hợp.', $fresh->rejection_reason);
+        $this->assertTrue($fresh->genres->contains($this->actionGenre));
+        $this->assertFalse($fresh->genres->contains($otherGenre));
 
         // Public cover is preserved, proposed cover is cleaned up
         Storage::disk('public')->assertExists($publicCover);

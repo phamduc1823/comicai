@@ -402,6 +402,8 @@ class CreatorComicApiTest extends TestCase
         $this->assertSame('Tên Mới Đề Xuất', $fresh->pending_changes['title']);
         $this->assertSame('Mô tả mới sửa đang chờ duyệt.', $fresh->pending_changes['description']);
         $this->assertSame('16+', $fresh->pending_changes['age_rating']);
+        $this->assertSame([$this->actionGenre->id], $fresh->pending_changes['genres']);
+        $this->assertSame([$this->colorTag->id], $fresh->pending_changes['tags']);
         $this->assertTrue(str_starts_with($fresh->pending_changes['cover_path'], 'comics/covers/'));
         Storage::disk('public')->assertExists($fresh->pending_changes['cover_path']);
 
@@ -419,6 +421,42 @@ class CreatorComicApiTest extends TestCase
 
         // Original pending_changes is NOT overwritten
         $this->assertSame('Tên Mới Đề Xuất', $approvedComic->fresh()->pending_changes['title']);
+    }
+
+    /**
+     * 9b. Update approved comic with new genres queues proposed genres in pending_changes
+     * without modifying active comic-genre relations before admin approval.
+     */
+    public function test_approved_comic_update_with_new_genres_queues_genres_into_pending_changes(): void
+    {
+        $approvedComic = Comic::create([
+            'title' => 'Truyện Thể Loại Cũ',
+            'slug' => 'truyen-the-loai-cu',
+            'author_name' => 'Tác Giả',
+            'user_id' => $this->creatorA->id,
+            'cover_path' => 'comics/covers/genre_test.webp',
+        ]);
+        $approvedComic->approval_status = 'approved';
+        $approvedComic->save();
+        $approvedComic->genres()->sync([$this->actionGenre->id]);
+
+        $payload = [
+            'genres' => [$this->comedyGenre->id],
+        ];
+
+        $response = $this->actingAs($this->creatorA)->postJson("/api/creator/comics/{$approvedComic->id}", $payload);
+
+        $response->assertStatus(200);
+
+        $fresh = $approvedComic->fresh(['genres']);
+
+        // 1. Active relations must remain unchanged before Admin approval
+        $this->assertTrue($fresh->genres->contains($this->actionGenre));
+        $this->assertFalse($fresh->genres->contains($this->comedyGenre));
+
+        // 2. pending_changes contains the proposed genre IDs
+        $this->assertNotNull($fresh->pending_changes);
+        $this->assertSame([$this->comedyGenre->id], $fresh->pending_changes['genres']);
     }
 
     /**
