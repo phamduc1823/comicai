@@ -6,9 +6,12 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BannerController;
 use App\Http\Controllers\Api\ChapterController;
 use App\Http\Controllers\Api\ComicController;
+use App\Http\Controllers\Api\CommentController;
 use App\Http\Controllers\Api\CreatorChapterController;
 use App\Http\Controllers\Api\CreatorComicController;
 use App\Http\Controllers\Api\GenreController;
+use App\Http\Controllers\Api\PostController;
+use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\TagController;
 use Illuminate\Support\Facades\Route;
 
@@ -29,12 +32,40 @@ Route::get('/comics/{slug}', [ComicController::class, 'show']);
 Route::get('/comics/{slug}/chapters', [ChapterController::class, 'index']);
 Route::get('/comics/{slug}/chapters/{chapterNumber}', [ChapterController::class, 'show']);
 
+// Community Public endpoints (no authentication required)
+Route::get('/posts', [PostController::class, 'index']);
+Route::get('/posts/{id}', [PostController::class, 'show']);
+Route::get('/comments', [CommentController::class, 'index']);
+Route::get('/posts/{id}/comments', [CommentController::class, 'indexForPost']);
+Route::get('/comics/{id}/comments', [CommentController::class, 'indexForComic']);
+Route::get('/chapters/{id}/comments', [CommentController::class, 'indexForChapter']);
+
 Route::middleware(['guest.api', 'throttle:10,1,register'])->post('/register', [AuthController::class, 'register']);
 Route::middleware(['guest.api', 'throttle:5,1,login'])->post('/login', [AuthController::class, 'login']);
 
 Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::get('/user', [AuthController::class, 'user']);
     Route::post('/logout', [AuthController::class, 'logout']);
+
+    // Community Posts & Likes (authenticated)
+    Route::post('/posts', [PostController::class, 'store']);
+    Route::match(['put', 'patch', 'post'], '/posts/{id}', [PostController::class, 'update']);
+    Route::delete('/posts/{id}', [PostController::class, 'destroy']);
+    Route::post('/posts/{id}/like', [PostController::class, 'toggleLike']);
+    Route::delete('/posts/{id}/like', [PostController::class, 'unlike']);
+
+    // Community Comments & Replies (authenticated)
+    Route::post('/comments', [CommentController::class, 'store'])->middleware('throttle:30,1');
+    Route::post('/posts/{id}/comments', [CommentController::class, 'storeForPost'])->middleware('throttle:30,1');
+    Route::post('/comics/{id}/comments', [CommentController::class, 'storeForComic'])->middleware('throttle:30,1');
+    Route::post('/chapters/{id}/comments', [CommentController::class, 'storeForChapter'])->middleware('throttle:30,1');
+    Route::post('/comments/{id}/reply', [CommentController::class, 'reply'])->middleware('throttle:30,1');
+    Route::delete('/comments/{id}', [CommentController::class, 'destroy']);
+    Route::post('/comments/{id}/like', [CommentController::class, 'toggleLike']);
+    Route::delete('/comments/{id}/like', [CommentController::class, 'unlike']);
+
+    // Community Reports (authenticated: reader, creator, admin)
+    Route::post('/reports', [ReportController::class, 'store'])->middleware('throttle:30,1');
 });
 
 // Creator Comic & Chapter Management endpoints (creator and admin)
@@ -77,3 +108,11 @@ Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/moder
     Route::post('/chapters/{id}/approve', [AdminChapterModerationController::class, 'approve']);
     Route::post('/chapters/{id}/reject', [AdminChapterModerationController::class, 'reject']);
 });
+
+// Admin Reports moderation endpoints (strictly admin only)
+Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/reports')->group(function () {
+    Route::get('/', [ReportController::class, 'index']);
+    Route::get('/{id}', [ReportController::class, 'show']);
+    Route::match(['patch', 'put'], '/{id}', [ReportController::class, 'update']);
+});
+

@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Chapter extends Model
 {
@@ -88,5 +89,24 @@ class Chapter extends Model
     public function readingHistories(): HasMany
     {
         return $this->hasMany(ReadingHistory::class, 'chapter_id');
+    }
+
+    /**
+     * Comments on this chapter.
+     */
+    public function comments(): MorphMany
+    {
+        return $this->morphMany(Comment::class, 'commentable');
+    }
+
+    /**
+     * Bootstrap the model and its events.
+     * Clean up polymorphic comments when chapter is deleted.
+     */
+    protected static function booted(): void
+    {
+        static::deleting(function (Chapter $chapter) {
+            $chapter->comments()->delete();
+        });
     }
 }

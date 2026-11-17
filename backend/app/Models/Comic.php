@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Comic extends Model
 {
@@ -144,5 +145,32 @@ class Comic extends Model
     public function banners(): HasMany
     {
         return $this->hasMany(Banner::class, 'comic_id');
+    }
+
+    /**
+     * Community posts mentioning or discussing this comic.
+     */
+    public function posts(): HasMany
+    {
+        return $this->hasMany(Post::class, 'comic_id');
+    }
+
+    /**
+     * Comments directly on this comic.
+     */
+    public function comments(): MorphMany
+    {
+        return $this->morphMany(Comment::class, 'commentable');
+    }
+
+    /**
+     * Bootstrap the model and its events.
+     * Clean up polymorphic comments when comic is deleted.
+     */
+    protected static function booted(): void
+    {
+        static::deleting(function (Comic $comic) {
+            $comic->comments()->delete();
+        });
     }
 }

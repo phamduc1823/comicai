@@ -101,4 +101,44 @@ class User extends Authenticatable
     {
         return $this->hasMany(ReadingHistory::class, 'user_id');
     }
+
+    /**
+     * Community posts created by this user.
+     */
+    public function posts(): HasMany
+    {
+        return $this->hasMany(Post::class, 'user_id');
+    }
+
+    /**
+     * Comments written by this user.
+     */
+    public function comments(): HasMany
+    {
+        return $this->hasMany(Comment::class, 'user_id');
+    }
+
+    /**
+     * Likes given by this user.
+     */
+    public function likes(): HasMany
+    {
+        return $this->hasMany(Like::class, 'user_id');
+    }
+
+    /**
+     * Reports submitted by this user.
+     */
+    public function reports(): HasMany
+    {
+        return $this->hasMany(Report::class, 'reporter_id');
+    }
+
+    /**
+     * Reports resolved by this administrator.
+     */
+    public function resolvedReports(): HasMany
+    {
+        return $this->hasMany(Report::class, 'resolved_by');
+    }
 }
