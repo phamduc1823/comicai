@@ -48,6 +48,22 @@ const router = createRouter({
       },
     },
     {
+      path: '/community',
+      name: 'community',
+      component: () => import('@/views/CommunityPage.vue'),
+      meta: {
+        title: 'Cộng đồng — BlueToon',
+      },
+    },
+    {
+      path: '/posts/:id',
+      name: 'post-detail',
+      component: () => import('@/views/PostDetailPage.vue'),
+      meta: {
+        title: 'Chi tiết bài viết — BlueToon',
+      },
+    },
+    {
       path: '/login',
       name: 'login',
       component: () => import('@/pages/LoginPage.vue'),
