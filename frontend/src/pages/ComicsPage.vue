@@ -30,6 +30,8 @@ const errorMessage = ref<string | null>(null)
 
 // Filter states (bound to UI)
 const searchInput = ref('')
+const searchMode = ref<'normal' | 'ai'>('normal')
+const aiFallbackNotice = ref<string | null>(null)
 const selectedGenre = ref('')
 const selectedTag = ref('')
 const selectedStatus = ref<ComicStatus | ''>('')
@@ -165,6 +167,10 @@ function parseRouteQuery() {
   // Validate page
   const page = !isNaN(pageRaw) && pageRaw > 0 ? pageRaw : 1
 
+  // Validate mode
+  const modeRaw = typeof route.query.mode === 'string' ? route.query.mode.trim() : ''
+  searchMode.value = modeRaw === 'ai' ? 'ai' : 'normal'
+
   searchInput.value = q
   selectedGenre.value = genre
   selectedTag.value = tag
@@ -174,12 +180,62 @@ function parseRouteQuery() {
 }
 
 /**
+ * Handle switching between normal search and AI search mode.
+ */
+function onModeChange() {
+  aiFallbackNotice.value = null
+  applyFilters({ resetPage: true })
+}
+
+/**
  * Fetch comics list from API using current route query parameters.
  */
 async function fetchComics() {
   const requestId = ++latestRequestId
   isLoading.value = true
   errorMessage.value = null
+  aiFallbackNotice.value = null
+
+  // If AI search mode is active and there is a query string, invoke AI Search API
+  if (searchMode.value === 'ai' && searchInput.value.trim()) {
+    try {
+      const response = await CatalogService.aiSearch({
+        q: searchInput.value.trim(),
+        mode: 'ai',
+        genre: selectedGenre.value || undefined,
+        tag: selectedTag.value || undefined,
+        status: selectedStatus.value || undefined,
+        limit: 18,
+      })
+
+      if (requestId === latestRequestId) {
+        comics.value = response.data || []
+        aiFallbackNotice.value = response.meta?.fallback_notice || null
+        paginationMeta.value = {
+          current_page: 1,
+          last_page: 1,
+          per_page: 18,
+          total: response.meta?.total || response.data.length,
+          from: response.data.length > 0 ? 1 : null,
+          to: response.data.length,
+          links: [],
+          path: '/comics',
+        }
+      }
+    } catch (error: unknown) {
+      if (requestId === latestRequestId) {
+        errorMessage.value = getErrorMessage(
+          error,
+          'Không thể hoàn thành tìm kiếm bằng AI. Vui lòng kiểm tra kết nối mạng và thử lại.'
+        )
+      }
+    } finally {
+      if (requestId === latestRequestId) {
+        isLoading.value = false
+      }
+    }
+    return
+  }
 
   const params: ListComicsParams = {
     page: currentPage.value,
@@ -234,6 +290,10 @@ function applyFilters(options: { resetPage?: boolean } = {}) {
 
   const cleanQ = searchInput.value.trim()
   if (cleanQ) query.q = cleanQ
+
+  if (searchMode.value === 'ai') {
+    query.mode = 'ai'
+  }
 
   if (selectedGenre.value) query.genre = selectedGenre.value
   if (selectedTag.value) query.tag = selectedTag.value
@@ -355,14 +415,27 @@ onUnmounted(() => {
         <!-- Search Box -->
         <div class="search-box-wrapper">
           <form class="search-form" @submit.prevent="submitSearch">
-            <span class="search-icon" aria-hidden="true">🔍</span>
+            <!-- Search Mode Selector Dropdown -->
+            <div class="search-mode-container">
+              <select
+                v-model="searchMode"
+                class="search-mode-select"
+                aria-label="Chế độ tìm kiếm"
+                @change="onModeChange"
+              >
+                <option value="normal">Tìm kiếm thông thường</option>
+                <option value="ai">Tìm kiếm bằng AI</option>
+              </select>
+            </div>
+
+            <span class="search-icon" aria-hidden="true">{{ searchMode === 'ai' ? '✨' : '🔍' }}</span>
             <input
               v-model="searchInput"
               type="search"
               class="search-input"
-              placeholder="Tìm theo tên truyện, tác giả, tựa đề khác..."
+              :placeholder="searchMode === 'ai' ? 'Mô tả truyện theo trí nhớ của bạn (nhân vật, sự kiện, chi tiết)...' : 'Tìm theo tên truyện, tác giả, tựa đề khác...'"
               aria-label="Tìm kiếm truyện tranh"
-              maxlength="100"
+              :maxlength="searchMode === 'ai' ? 300 : 100"
               @input="onSearchInput"
             />
             <button
@@ -377,11 +450,22 @@ onUnmounted(() => {
             <button
               type="submit"
               class="btn-search-submit"
+              :class="{ 'btn-search-ai': searchMode === 'ai' }"
               aria-label="Thực hiện tìm kiếm"
             >
-              Tìm kiếm
+              {{ searchMode === 'ai' ? 'Tìm bằng AI' : 'Tìm kiếm' }}
             </button>
           </form>
+
+          <!-- AI Loading State -->
+          <div v-if="isLoading && searchMode === 'ai'" class="ai-loading-indicator" role="status">
+            <span class="ai-sparkle">✨</span> Gemini 2.5 Flash đang phân tích trí nhớ và tìm kiếm trong thư viện...
+          </div>
+
+          <!-- AI Fallback Alert -->
+          <div v-if="aiFallbackNotice && searchMode === 'ai'" class="ai-fallback-alert" role="alert">
+            <span class="fallback-icon">ℹ️</span> {{ aiFallbackNotice }}
+          </div>
         </div>
       </div>
     </header>
@@ -736,6 +820,62 @@ onUnmounted(() => {
 
 .btn-search-submit:hover {
   background-color: var(--color-primary-hover);
+}
+
+.search-mode-container {
+  margin-right: var(--spacing-xs);
+  border-right: 1px solid var(--color-border);
+  padding-right: var(--spacing-xs);
+  display: flex;
+  align-items: center;
+}
+
+.search-mode-select {
+  background: transparent;
+  color: var(--color-primary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  border: none;
+  outline: none;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.search-mode-select option {
+  background-color: var(--color-bg-card);
+  color: var(--color-text-primary);
+}
+
+.btn-search-ai {
+  background: linear-gradient(135deg, var(--color-primary) 0%, #a855f7 100%);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(168, 85, 247, 0.25);
+}
+
+.btn-search-ai:hover {
+  filter: brightness(1.1);
+}
+
+.ai-loading-indicator {
+  margin-top: var(--spacing-sm);
+  font-size: var(--font-size-xs);
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+}
+
+.ai-fallback-alert {
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background-color: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
+  color: #facc15;
+  text-align: left;
 }
 
 /* Catalog Body */

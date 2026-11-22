@@ -15,6 +15,10 @@ use App\Policies\CommentPolicy;
 use App\Policies\ConversationPolicy;
 use App\Policies\PostPolicy;
 use App\Policies\ReportPolicy;
+use App\Services\AiSearchService;
+use App\Services\Contracts\AiSearchServiceInterface;
+use App\Services\FallbackSearchService;
+use App\Services\GeminiQueryUnderstandingService;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
@@ -26,7 +30,17 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(FallbackSearchService::class, function () {
+            return new FallbackSearchService();
+        });
+
+        $this->app->singleton(AiSearchServiceInterface::class, function ($app) {
+            return new AiSearchService($app->make(FallbackSearchService::class));
+        });
+
+        $this->app->singleton(GeminiQueryUnderstandingService::class, function () {
+            return new GeminiQueryUnderstandingService();
+        });
     }
 
     /**

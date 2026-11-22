@@ -53,6 +53,45 @@ export class CatalogService {
   }
 
   /**
+   * Search comics using AI search / Gemini query understanding or normal fallback.
+   * GET /api/ai-search
+   */
+  static async aiSearch(params: {
+    q: string
+    mode?: 'normal' | 'ai'
+    genre?: string
+    tag?: string
+    status?: string
+    age_rating?: string
+    limit?: number
+  }): Promise<{
+    data: ComicListItem[]
+    meta: {
+      total: number
+      query: string
+      limit: number
+      mode?: string
+      is_fallback?: boolean
+      ai_used?: boolean
+      fallback_notice?: string | null
+    }
+  }> {
+    const response = await httpClient.get<{
+      data: ComicListItem[]
+      meta: {
+        total: number
+        query: string
+        limit: number
+        mode?: string
+        is_fallback?: boolean
+        ai_used?: boolean
+        fallback_notice?: string | null
+      }
+    }>('/ai-search', { params })
+    return response.data
+  }
+
+  /**
    * Fetch full details of an approved comic by slug.
    * GET /api/comics/{slug}
    */

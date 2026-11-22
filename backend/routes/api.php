@@ -2,23 +2,24 @@
 
 use App\Http\Controllers\Api\AdminChapterModerationController;
 use App\Http\Controllers\Api\AdminComicModerationController;
+use App\Http\Controllers\Api\AiSearchController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BannerController;
 use App\Http\Controllers\Api\ChapterController;
 use App\Http\Controllers\Api\ComicController;
 use App\Http\Controllers\Api\CommentController;
+use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\CreatorChapterController;
 use App\Http\Controllers\Api\CreatorComicController;
 use App\Http\Controllers\Api\GenreController;
+use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\PostController;
+use App\Http\Controllers\Api\ReadingHistoryController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\TagController;
+use App\Http\Controllers\Api\UserLibraryController;
 use Illuminate\Support\Facades\Route;
 
-use App\Http\Controllers\Api\ReadingHistoryController;
-use App\Http\Controllers\Api\UserLibraryController;
-use App\Http\Controllers\Api\ConversationController;
-use App\Http\Controllers\Api\MessageController;
 Route::get('/health', function () {
     return response()->json([
         'status' => 'ok',
@@ -35,6 +36,7 @@ Route::get('/comics', [ComicController::class, 'index']);
 Route::get('/comics/{slug}', [ComicController::class, 'show']);
 Route::get('/comics/{slug}/chapters', [ChapterController::class, 'index']);
 Route::get('/comics/{slug}/chapters/{chapterNumber}', [ChapterController::class, 'show']);
+Route::get('/ai-search', [AiSearchController::class, 'search']);
 
 // Community Public endpoints (no authentication required)
 Route::get('/posts', [PostController::class, 'index']);
@@ -77,14 +79,14 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::post('/comics/{id}/bookmark', [UserLibraryController::class, 'toggleBookmark']);
     Route::get('/user/bookmarks', [UserLibraryController::class, 'bookmarks']);
 
-    // User Reading History
+    // User Reading History (Package 9.6.2 & 9.6.5.2)
     Route::get('/comics/{comicId}/reading-history', [ReadingHistoryController::class, 'showByComic']);
     Route::post('/comics/{comicId}/reading-history', [ReadingHistoryController::class, 'record'])->middleware('throttle:60,1');
     Route::delete('/comics/{comicId}/reading-history', [ReadingHistoryController::class, 'destroy']);
     Route::get('/user/reading-history', [ReadingHistoryController::class, 'index']);
     Route::delete('/user/reading-history', [ReadingHistoryController::class, 'clear']);
 
-    // Realtime Chat APIs (Contract)
+    // Realtime Chat APIs (Package 9.7.3A Contract)
     Route::prefix('chat')->name('chat.')->group(function () {
         Route::get('/conversations', [ConversationController::class, 'index'])->name('conversations.index');
         Route::post('/conversations', [ConversationController::class, 'store'])->name('conversations.store')->middleware('throttle:30,1');
