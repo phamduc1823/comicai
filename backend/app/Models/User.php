@@ -5,6 +5,7 @@ namespace App\Models;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -95,6 +96,24 @@ class User extends Authenticatable
     }
 
     /**
+     * Comics followed by this user (Many-to-Many).
+     */
+    public function followedComics(): BelongsToMany
+    {
+        return $this->belongsToMany(Comic::class, 'follows', 'user_id', 'comic_id')
+            ->withPivot('created_at');
+    }
+
+    /**
+     * Comics bookmarked by this user (Many-to-Many).
+     */
+    public function bookmarkedComics(): BelongsToMany
+    {
+        return $this->belongsToMany(Comic::class, 'bookmarks', 'user_id', 'comic_id')
+            ->withPivot('created_at');
+    }
+
+    /**
      * Reading history records for this user.
      */
     public function readingHistories(): HasMany
@@ -141,4 +160,5 @@ class User extends Authenticatable
     {
         return $this->hasMany(Report::class, 'resolved_by');
     }
+
 }

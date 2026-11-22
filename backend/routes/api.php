@@ -15,6 +15,8 @@ use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\TagController;
 use Illuminate\Support\Facades\Route;
 
+use App\Http\Controllers\Api\ReadingHistoryController;
+use App\Http\Controllers\Api\UserLibraryController;
 Route::get('/health', function () {
     return response()->json([
         'status' => 'ok',
@@ -66,6 +68,19 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
 
     // Community Reports (authenticated: reader, creator, admin)
     Route::post('/reports', [ReportController::class, 'store'])->middleware('throttle:30,1');
+
+    // User Library: Follows & Bookmarks (authenticated)
+    Route::post('/comics/{id}/follow', [UserLibraryController::class, 'toggleFollow']);
+    Route::get('/user/follows', [UserLibraryController::class, 'follows']);
+    Route::post('/comics/{id}/bookmark', [UserLibraryController::class, 'toggleBookmark']);
+    Route::get('/user/bookmarks', [UserLibraryController::class, 'bookmarks']);
+
+    // User Reading History
+    Route::get('/comics/{comicId}/reading-history', [ReadingHistoryController::class, 'showByComic']);
+    Route::post('/comics/{comicId}/reading-history', [ReadingHistoryController::class, 'record'])->middleware('throttle:60,1');
+    Route::delete('/comics/{comicId}/reading-history', [ReadingHistoryController::class, 'destroy']);
+    Route::get('/user/reading-history', [ReadingHistoryController::class, 'index']);
+    Route::delete('/user/reading-history', [ReadingHistoryController::class, 'clear']);
 });
 
 // Creator Comic & Chapter Management endpoints (creator and admin)

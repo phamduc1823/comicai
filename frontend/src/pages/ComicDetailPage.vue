@@ -1,10 +1,20 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
-import { useRoute, RouterLink } from 'vue-router'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { CatalogService } from '@/services/catalogService'
 import { ReaderHistoryService } from '@/services/readerHistoryService'
-import { getErrorMessage, isNotFoundError } from '@/services/httpClient'
+import { ReadingHistoryService } from '@/services/readingHistoryService'
+import { UserLibraryService } from '@/services/userLibraryService'
+import {
+  getErrorMessage,
+  isNotFoundError,
+  isUnauthorizedError,
+  isForbiddenError,
+  isValidationError,
+  isRateLimitError,
+  getRetryAfterSeconds,
+} from '@/services/httpClient'
 import type { ComicDetail, ChapterSummary } from '@/types/catalog'
 import {
   formatChapterNumber,
@@ -13,7 +23,9 @@ import {
   getLatestChapter,
   buildChapterUrl,
 } from '@/utils/chapter'
+import CommentSection from '@/components/community/CommentSection.vue'
 
+const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 
@@ -26,6 +38,12 @@ const isNotFound = ref(false)
 const notFoundMessage = ref('')
 const errorMessage = ref<string | null>(null)
 
+// Interaction states (Package 9.5.4)
+const isFollowLoading = ref(false)
+const isBookmarkLoading = ref(false)
+const actionError = ref<string | null>(null)
+let errorTimeoutId: ReturnType<typeof setTimeout> | null = null
+
 // UI states
 const coverImageError = ref(false)
 const bannerImageError = ref(false)
@@ -33,7 +51,9 @@ const creatorAvatarError = ref(false)
 const isDescriptionExpanded = ref(false)
 const sortDescending = ref(false) // default ASC
 
-let latestRequestId = 0
+let latestComicRequestId = 0
+let latestHistoryRequestId = 0
+const isComponentMounted = ref(true)
 const historyTick = ref(0)
 
 // Computed chapters list sorted numerically
@@ -54,28 +74,139 @@ const latestChapter = computed(() => {
   return getLatestChapter(chapters.value)
 })
 
-// Check local reading history scoped by active user identity
+// Backend Reading History state for authenticated users
+interface BackendLastReadInfo {
+  chapterId: number
+  chapterNumber: string
+}
+type BackendHistoryStatus = 'idle' | 'loading' | 'loaded-with-history' | 'loaded-empty' | 'error'
+
+const backendLastReadChapter = ref<BackendLastReadInfo | null>(null)
+const backendHistoryStatus = ref<BackendHistoryStatus>('idle')
+
+/**
+ * Fetch backend reading history for this specific comic using dedicated Comic ID endpoint.
+ * Runs asynchronously in background with independent request counter and user tracking.
+ */
+async function fetchBackendReadingHistory(comicId: number, comicSlug: string) {
+  if (!authStore.isAuthenticated) {
+    backendLastReadChapter.value = null
+    backendHistoryStatus.value = 'idle'
+    return
+  }
+
+  const requestId = ++latestHistoryRequestId
+  const initiatedUserId = authStore.user?.id ?? null
+  backendHistoryStatus.value = 'loading'
+
+  try {
+    const res = await ReadingHistoryService.getComicReadingHistory(comicId)
+
+    // Strict concurrency & freshness guards
+    if (
+      isComponentMounted.value &&
+      requestId === latestHistoryRequestId &&
+      authStore.user?.id === initiatedUserId &&
+      comic.value?.id === comicId &&
+      comic.value?.slug === comicSlug
+    ) {
+      if (res.data) {
+        backendLastReadChapter.value = {
+          chapterId: res.data.chapter_id,
+          chapterNumber: res.data.chapter_number,
+        }
+        backendHistoryStatus.value = 'loaded-with-history'
+      } else {
+        backendLastReadChapter.value = null
+        backendHistoryStatus.value = 'loaded-empty'
+      }
+      historyTick.value++
+    }
+  } catch {
+    // Network or server error: transition to 'error' status for fallback to localStorage
+    if (
+      isComponentMounted.value &&
+      requestId === latestHistoryRequestId &&
+      authStore.user?.id === initiatedUserId &&
+      comic.value?.id === comicId &&
+      comic.value?.slug === comicSlug
+    ) {
+      backendLastReadChapter.value = null
+      backendHistoryStatus.value = 'error'
+      historyTick.value++
+    }
+  }
+}
+
+// Check reading history: prioritizes authoritative Backend for authenticated users, strictly scoped localStorage for guests
 const lastReadChapter = computed<ChapterSummary | null>(() => {
   void historyTick.value
   // When session is being initialized/restored, wait until identity is confirmed
   if (!authStore.isInitialized) return null
   if (!comic.value || !chapters.value || chapters.value.length === 0) return null
 
-  const currentUserId = authStore.user?.id ?? null
-  const history = ReaderHistoryService.getLastRead(comic.value.slug, currentUserId)
-  if (!history) return null
+  // 1. Authenticated user: Prioritize authoritative backend reading history
+  if (authStore.isAuthenticated) {
+    // If backend returned valid reading history for this comic
+    if (backendHistoryStatus.value === 'loaded-with-history' && backendLastReadChapter.value) {
+      const found = chapters.value.find(
+        (c) =>
+          c.id === backendLastReadChapter.value?.chapterId ||
+          compareChapterNumbers(c.chapter_number, backendLastReadChapter.value?.chapterNumber) === 0
+      )
+      if (found) return found
+      // If chapter was unpublished or removed from catalog, return null (falls back to first published chapter)
+      return null
+    }
+
+    // If backend confirmed user has no reading history for this comic (data === null)
+    if (backendHistoryStatus.value === 'loaded-empty') {
+      return null
+    }
+
+    // While backend request is in-flight (loading/idle) or if API failed (error):
+    // Fallback safely to localStorage of that specific user identity
+    if (
+      backendHistoryStatus.value === 'error' ||
+      backendHistoryStatus.value === 'loading' ||
+      backendHistoryStatus.value === 'idle'
+    ) {
+      const currentUserId = authStore.user?.id ?? null
+      const localHistory = ReaderHistoryService.getLastRead(comic.value.slug, currentUserId)
+      if (localHistory) {
+        return (
+          chapters.value.find(
+            (c) => compareChapterNumbers(c.chapter_number, localHistory.chapterNumber) === 0
+          ) || null
+        )
+      }
+      return null
+    }
+
+    return null
+  }
+
+  // 2. Guest user: strictly use guest localStorage without calling authenticated API
+  const localHistory = ReaderHistoryService.getLastRead(comic.value.slug, null)
+  if (!localHistory) return null
   return (
     chapters.value.find(
-      (c) => compareChapterNumbers(c.chapter_number, history.chapterNumber) === 0
+      (c) => compareChapterNumbers(c.chapter_number, localHistory.chapterNumber) === 0
     ) || null
   )
 })
 
-// Trigger re-computation of reading history when auth state or user changes
+// Trigger re-computation and background sync when auth state or user identity changes
 watch(
-  () => [authStore.user?.id, authStore.isInitialized],
-  () => {
+  () => [authStore.user?.id, authStore.isAuthenticated, authStore.isInitialized],
+  ([, isAuth]) => {
+    latestHistoryRequestId++
+    backendLastReadChapter.value = null
+    backendHistoryStatus.value = 'idle'
     historyTick.value++
+    if (isAuth && comic.value) {
+      fetchBackendReadingHistory(comic.value.id, comic.value.slug)
+    }
   }
 )
 
@@ -130,11 +261,172 @@ function formatDate(isoString: string | null): string {
 }
 
 /**
+ * Notification helper for follow / bookmark interaction errors.
+ * Automatically clears after 5 seconds or when dismissed by user.
+ */
+function setActionError(message: string) {
+  if (errorTimeoutId) {
+    clearTimeout(errorTimeoutId)
+    errorTimeoutId = null
+  }
+  actionError.value = message
+  errorTimeoutId = setTimeout(() => {
+    actionError.value = null
+    errorTimeoutId = null
+  }, 5000)
+}
+
+/**
+ * Handle API error from follow or bookmark action.
+ * Maps status codes (401, 403, 404, 422, 429, 500) to human-friendly Vietnamese notices.
+ */
+function handleActionError(err: unknown, defaultMessage: string) {
+  if (isUnauthorizedError(err)) {
+    setActionError('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.')
+    router.push({
+      path: '/login',
+      query: { redirect: route.fullPath },
+    })
+    return
+  }
+
+  if (isForbiddenError(err)) {
+    setActionError('Tài khoản của bạn không được phép thực hiện thao tác này.')
+    return
+  }
+
+  if (isNotFoundError(err)) {
+    setActionError('Bộ truyện không tồn tại hoặc chưa được duyệt phát hành.')
+    return
+  }
+
+  if (isRateLimitError(err)) {
+    const retrySeconds = getRetryAfterSeconds(err)
+    setActionError(
+      retrySeconds
+        ? `Bạn thao tác quá nhanh. Vui lòng thử lại sau ${retrySeconds} giây.`
+        : 'Bạn thao tác quá nhanh. Vui lòng thử lại trong giây lát.'
+    )
+    return
+  }
+
+  if (isValidationError(err)) {
+    setActionError('Dữ liệu yêu cầu không hợp lệ.')
+    return
+  }
+
+  setActionError(getErrorMessage(err, defaultMessage))
+}
+
+/**
+ * Handle Follow / Unfollow comic toggle with optimistic update and rollback.
+ * - Redirects guests to login with redirect query to current comic detail.
+ * - Prevents double-clicks while in-flight.
+ * - Optimistically flips is_followed and adjusts follows_count.
+ * - Reverts to initial values on failure.
+ * - Protects against stale responses across comic route transitions.
+ */
+async function handleToggleFollow() {
+  if (!authStore.isAuthenticated) {
+    router.push({
+      path: '/login',
+      query: { redirect: route.fullPath },
+    })
+    return
+  }
+
+  if (isFollowLoading.value) return
+  if (!comic.value) return
+
+  const targetId = comic.value.id
+  const prevFollowed = Boolean(comic.value.is_followed)
+  const prevCount = Number(comic.value.follows_count) || 0
+
+  // Optimistic update
+  comic.value.is_followed = !prevFollowed
+  comic.value.follows_count = Math.max(0, prevCount + (prevFollowed ? -1 : 1))
+
+  isFollowLoading.value = true
+  actionError.value = null
+
+  try {
+    const response = await UserLibraryService.toggleFollow(targetId)
+    // Synchronize with authoritative server response if user is still on the same comic
+    if (comic.value && comic.value.id === targetId) {
+      comic.value.is_followed = response.data.is_followed
+      comic.value.follows_count = response.data.follows_count
+    }
+  } catch (err: unknown) {
+    // Rollback to previous state on failure if user is still on the same comic
+    if (comic.value && comic.value.id === targetId) {
+      comic.value.is_followed = prevFollowed
+      comic.value.follows_count = prevCount
+    }
+    handleActionError(err, 'Không thể cập nhật trạng thái theo dõi.')
+  } finally {
+    isFollowLoading.value = false
+  }
+}
+
+/**
+ * Handle Bookmark / Unbookmark comic toggle with optimistic update and rollback.
+ * - Redirects guests to login with redirect query to current comic detail.
+ * - Prevents double-clicks while in-flight.
+ * - Optimistically flips is_bookmarked.
+ * - Reverts to initial values on failure.
+ * - Protects against stale responses across comic route transitions.
+ */
+async function handleToggleBookmark() {
+  if (!authStore.isAuthenticated) {
+    router.push({
+      path: '/login',
+      query: { redirect: route.fullPath },
+    })
+    return
+  }
+
+  if (isBookmarkLoading.value) return
+  if (!comic.value) return
+
+  const targetId = comic.value.id
+  const prevBookmarked = Boolean(comic.value.is_bookmarked)
+
+  // Optimistic update
+  comic.value.is_bookmarked = !prevBookmarked
+
+  isBookmarkLoading.value = true
+  actionError.value = null
+
+  try {
+    const response = await UserLibraryService.toggleBookmark(targetId)
+    // Synchronize with authoritative server response if user is still on the same comic
+    if (comic.value && comic.value.id === targetId) {
+      comic.value.is_bookmarked = response.data.is_bookmarked
+    }
+  } catch (err: unknown) {
+    // Rollback to previous state on failure if user is still on the same comic
+    if (comic.value && comic.value.id === targetId) {
+      comic.value.is_bookmarked = prevBookmarked
+    }
+    handleActionError(err, 'Không thể cập nhật tủ sách cá nhân.')
+  } finally {
+    isBookmarkLoading.value = false
+  }
+}
+
+/**
  * Fetch comic details and its published chapters.
  */
 async function loadComicData(slug: string) {
-  const requestId = ++latestRequestId
+  const requestId = ++latestComicRequestId
+  // Invalidate any in-flight reading history request from previous comic
+  latestHistoryRequestId++
+  backendLastReadChapter.value = null
+  backendHistoryStatus.value = 'idle'
+
   isLoading.value = true
+  comic.value = null
+  chapters.value = []
   errorMessage.value = null
   isNotFound.value = false
   notFoundMessage.value = ''
@@ -142,10 +434,17 @@ async function loadComicData(slug: string) {
   bannerImageError.value = false
   creatorAvatarError.value = false
   isDescriptionExpanded.value = false
+  isFollowLoading.value = false
+  isBookmarkLoading.value = false
+  actionError.value = null
+  if (errorTimeoutId) {
+    clearTimeout(errorTimeoutId)
+    errorTimeoutId = null
+  }
 
   try {
     const response = await CatalogService.getComicDetail(slug)
-    if (requestId === latestRequestId) {
+    if (isComponentMounted.value && requestId === latestComicRequestId) {
       comic.value = response.data
       document.title = `${response.data.title} — BlueToon`
 
@@ -157,9 +456,14 @@ async function loadComicData(slug: string) {
         await fetchChapters(slug, requestId)
       }
       historyTick.value++
+
+      // For authenticated users, initiate background fetch for backend reading history using dedicated endpoint
+      if (authStore.isAuthenticated) {
+        fetchBackendReadingHistory(response.data.id, response.data.slug)
+      }
     }
   } catch (error: unknown) {
-    if (requestId === latestRequestId) {
+    if (isComponentMounted.value && requestId === latestComicRequestId) {
       if (isNotFoundError(error)) {
         isNotFound.value = true
         notFoundMessage.value = getErrorMessage(
@@ -174,7 +478,7 @@ async function loadComicData(slug: string) {
       }
     }
   } finally {
-    if (requestId === latestRequestId) {
+    if (isComponentMounted.value && requestId === latestComicRequestId) {
       isLoading.value = false
     }
   }
@@ -187,14 +491,14 @@ async function fetchChapters(slug: string, requestId: number) {
   isChaptersLoading.value = true
   try {
     const response = await CatalogService.getChapters(slug)
-    if (requestId === latestRequestId) {
+    if (isComponentMounted.value && requestId === latestComicRequestId) {
       chapters.value = response.data || []
       historyTick.value++
     }
   } catch {
     // Non-fatal, use whatever chapters were in detail resource
   } finally {
-    if (requestId === latestRequestId) {
+    if (isComponentMounted.value && requestId === latestComicRequestId) {
       isChaptersLoading.value = false
     }
   }
@@ -222,6 +526,16 @@ onMounted(() => {
   const slug = String(route.params.slug || '')
   if (slug) {
     loadComicData(slug)
+  }
+})
+
+onUnmounted(() => {
+  isComponentMounted.value = false
+  latestComicRequestId++
+  latestHistoryRequestId++
+  if (errorTimeoutId) {
+    clearTimeout(errorTimeoutId)
+    errorTimeoutId = null
   }
 })
 </script>
@@ -274,6 +588,8 @@ onMounted(() => {
           <div class="skeleton-btn-row">
             <div class="skeleton-btn"></div>
             <div class="skeleton-btn"></div>
+            <div class="skeleton-btn sm"></div>
+            <div class="skeleton-btn sm"></div>
           </div>
         </div>
       </div>
@@ -427,7 +743,7 @@ onMounted(() => {
                 </div>
               </div>
 
-              <!-- Action Call to Reads -->
+              <!-- Action Call to Reads & Interactions -->
               <div class="cta-actions">
                 <template v-if="primaryChapter">
                   <!-- Primary Action: Đọc tiếp if history exists, else Đọc ngay -->
@@ -462,7 +778,115 @@ onMounted(() => {
                 <div v-else class="no-chapter-notice">
                   <span>Chưa có chương nào được phát hành công khai.</span>
                 </div>
+
+                <!-- User Library Actions: Follow & Bookmark -->
+                <div class="user-library-actions">
+                  <!-- Follow Button -->
+                  <button
+                    type="button"
+                    class="btn-interact btn-follow"
+                    :class="{ 'is-active': comic.is_followed, 'is-loading': isFollowLoading }"
+                    :disabled="isFollowLoading"
+                    :aria-pressed="comic.is_followed"
+                    :aria-busy="isFollowLoading"
+                    :aria-label="comic.is_followed ? 'Bỏ theo dõi bộ truyện này' : 'Theo dõi bộ truyện này'"
+                    @click="handleToggleFollow"
+                  >
+                    <span class="interact-icon-wrap" aria-hidden="true">
+                      <!-- Active Filled Star -->
+                      <svg
+                        v-if="comic.is_followed"
+                        class="interact-icon star-filled"
+                        viewBox="0 0 24 24"
+                        fill="currentColor"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                      >
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                      </svg>
+                      <!-- Inactive Outline Star -->
+                      <svg
+                        v-else
+                        class="interact-icon star-outline"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                      </svg>
+                    </span>
+                    <span class="interact-label">
+                      {{ comic.is_followed ? 'Đang theo dõi' : 'Theo dõi' }}
+                    </span>
+                    <span class="interact-badge" :title="comic.follows_count + ' người theo dõi'">
+                      {{ formatViews(comic.follows_count) }}
+                    </span>
+                    <span v-if="isFollowLoading" class="interact-spinner" aria-hidden="true"></span>
+                  </button>
+
+                  <!-- Bookmark Button -->
+                  <button
+                    type="button"
+                    class="btn-interact btn-bookmark"
+                    :class="{ 'is-active': comic.is_bookmarked, 'is-loading': isBookmarkLoading }"
+                    :disabled="isBookmarkLoading"
+                    :aria-pressed="comic.is_bookmarked"
+                    :aria-busy="isBookmarkLoading"
+                    :aria-label="comic.is_bookmarked ? 'Xóa khỏi tủ sách cá nhân' : 'Lưu vào tủ sách cá nhân'"
+                    @click="handleToggleBookmark"
+                  >
+                    <span class="interact-icon-wrap" aria-hidden="true">
+                      <!-- Active Filled Bookmark -->
+                      <svg
+                        v-if="comic.is_bookmarked"
+                        class="interact-icon bookmark-filled"
+                        viewBox="0 0 24 24"
+                        fill="currentColor"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                      >
+                        <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                      </svg>
+                      <!-- Inactive Outline Bookmark -->
+                      <svg
+                        v-else
+                        class="interact-icon bookmark-outline"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                      </svg>
+                    </span>
+                    <span class="interact-label">
+                      {{ comic.is_bookmarked ? 'Đã lưu' : 'Lưu tủ sách' }}
+                    </span>
+                    <span v-if="isBookmarkLoading" class="interact-spinner" aria-hidden="true"></span>
+                  </button>
+                </div>
               </div>
+
+              <!-- Action Feedback Alert (if any) -->
+              <transition name="alert-slide">
+                <div v-if="actionError" class="action-alert" role="alert">
+                  <span class="alert-icon" aria-hidden="true">⚠️</span>
+                  <span class="alert-text">{{ actionError }}</span>
+                  <button
+                    type="button"
+                    class="alert-close-btn"
+                    aria-label="Đóng thông báo lỗi"
+                    @click="actionError = null"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </transition>
             </div>
           </div>
         </div>
@@ -567,6 +991,12 @@ onMounted(() => {
             </RouterLink>
           </div>
         </section>
+
+        <!-- Comments Section (Package 9.4B) -->
+        <CommentSection
+          target-type="comic"
+          :target-id="comic.id"
+        />
       </main>
     </div>
   </div>
@@ -731,6 +1161,10 @@ onMounted(() => {
   height: 44px;
   border-radius: var(--radius-md);
   background-color: var(--color-bg-elevated);
+}
+
+.skeleton-btn.sm {
+  width: 96px;
 }
 
 .skeleton-body {
@@ -1184,6 +1618,198 @@ onMounted(() => {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   padding: var(--spacing-xs) 0;
+}
+
+/* User Library Actions (Follow & Bookmark) */
+.user-library-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.btn-interact {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  background-color: var(--color-bg-card);
+  color: var(--color-text-primary);
+  transition: all var(--transition-fast);
+  user-select: none;
+  white-space: nowrap;
+}
+
+.btn-interact:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  transform: translateY(-2px);
+}
+
+.btn-interact:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.btn-interact:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Follow active styling */
+.btn-follow.is-active {
+  background-color: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.45);
+  color: #fbbf24;
+}
+
+.btn-follow.is-active:hover:not(:disabled) {
+  background-color: rgba(245, 158, 11, 0.2);
+  border-color: #f59e0b;
+  color: #fef08a;
+}
+
+.interact-icon.star-filled {
+  color: #f59e0b;
+}
+
+.interact-icon.star-outline {
+  color: currentColor;
+}
+
+/* Bookmark active styling */
+.btn-bookmark.is-active {
+  background-color: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.45);
+  color: #34d399;
+}
+
+.btn-bookmark.is-active:hover:not(:disabled) {
+  background-color: rgba(16, 185, 129, 0.2);
+  border-color: #10b981;
+  color: #a7f3d0;
+}
+
+.interact-icon.bookmark-filled {
+  color: #10b981;
+}
+
+.interact-icon.bookmark-outline {
+  color: currentColor;
+}
+
+/* Shared icon & badge */
+.interact-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.interact-icon {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+  transition: transform var(--transition-fast);
+}
+
+.btn-interact:hover:not(:disabled) .interact-icon {
+  transform: scale(1.12);
+}
+
+.interact-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.interact-badge {
+  font-size: 11px;
+  font-weight: var(--font-weight-bold);
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-bg-elevated);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  line-height: 1.2;
+}
+
+.btn-follow.is-active .interact-badge {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #fef08a;
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.interact-spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: interact-spin 0.7s linear infinite;
+  margin-left: 2px;
+}
+
+@keyframes interact-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Action Error Alert */
+.action-alert {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 8px var(--spacing-md);
+  background-color: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: var(--radius-md);
+  color: #fca5a5;
+  font-size: var(--font-size-xs);
+  margin-top: var(--spacing-xs);
+  width: 100%;
+}
+
+.alert-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.alert-text {
+  flex: 1;
+}
+
+.alert-close-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  opacity: 0.7;
+  transition: opacity var(--transition-fast);
+}
+
+.alert-close-btn:hover {
+  opacity: 1;
+}
+
+.alert-slide-enter-active,
+.alert-slide-leave-active {
+  transition: all 0.2s ease-out;
+}
+
+.alert-slide-enter-from,
+.alert-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 
 /* Detail Body */

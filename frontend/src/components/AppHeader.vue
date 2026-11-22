@@ -62,6 +62,7 @@ async function handleLogout() {
         <RouterLink to="/" class="nav-link" active-class="active">Trang chủ</RouterLink>
         <RouterLink to="/comics" class="nav-link" active-class="active">Danh mục</RouterLink>
         <RouterLink to="/community" class="nav-link" active-class="active">Cộng đồng</RouterLink>
+        <RouterLink to="/library" class="nav-link" active-class="active">Tủ sách</RouterLink>
       </nav>
 
       <!-- Auth section -->

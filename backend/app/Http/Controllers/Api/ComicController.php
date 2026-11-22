@@ -8,6 +8,7 @@ use App\Http\Resources\ComicDetailResource;
 use App\Http\Resources\ComicListResource;
 use App\Models\Comic;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class ComicController extends Controller
@@ -80,9 +81,11 @@ class ComicController extends Controller
     /**
      * Display the specified approved comic by slug.
      */
-    public function show(string $slug): JsonResponse|ComicDetailResource
+    public function show(Request $request, string $slug): JsonResponse|ComicDetailResource
     {
-        $comic = Comic::query()
+        $currentUser = $request->user() ?? $request->user('sanctum');
+
+        $query = Comic::query()
             ->where('slug', $slug)
             ->where('approval_status', 'approved')
             ->withCount([
@@ -99,8 +102,20 @@ class ComicController extends Controller
                       ->orderBy('chapter_number', 'asc')
                       ->orderBy('id', 'asc');
                 },
-            ])
-            ->first();
+            ]);
+
+        if ($currentUser) {
+            $query->withExists([
+                'follows as is_followed' => function ($q) use ($currentUser) {
+                    $q->where('user_id', $currentUser->id);
+                },
+                'bookmarks as is_bookmarked' => function ($q) use ($currentUser) {
+                    $q->where('user_id', $currentUser->id);
+                },
+            ]);
+        }
+
+        $comic = $query->first();
 
         if (! $comic) {
             return response()->json([

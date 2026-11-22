@@ -25,6 +25,8 @@ export * from './auth'
 export * from './catalog'
 export * from './creator'
 export * from './admin'
+export * from './userLibrary'
+export * from './readingHistory'
 export type {
   Post,
   PostAuthor,

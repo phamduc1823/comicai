@@ -16,6 +16,24 @@ class ComicDetailResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $user = $request->user() ?? $request->user('sanctum');
+        $isFollowed = false;
+        $isBookmarked = false;
+
+        if ($user) {
+            if (isset($this->is_followed)) {
+                $isFollowed = (bool) $this->is_followed;
+            } else {
+                $isFollowed = $this->follows()->where('user_id', $user->id)->exists();
+            }
+
+            if (isset($this->is_bookmarked)) {
+                $isBookmarked = (bool) $this->is_bookmarked;
+            } else {
+                $isBookmarked = $this->bookmarks()->where('user_id', $user->id)->exists();
+            }
+        }
+
         return [
             'id' => $this->id,
             'title' => $this->title,
@@ -35,6 +53,8 @@ class ComicDetailResource extends JsonResource
             'status' => $this->status,
             'views_count' => (int) $this->views_count,
             'follows_count' => (int) $this->follows_count,
+            'is_followed' => $isFollowed,
+            'is_bookmarked' => $isBookmarked,
             'is_featured' => (bool) $this->is_featured,
             'ai_summary' => $this->ai_summary,
             'published_chapters_count' => (int) ($this->published_chapters_count ?? $this->chapters_count ?? 0),

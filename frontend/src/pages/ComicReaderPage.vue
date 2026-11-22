@@ -4,9 +4,11 @@ import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { CatalogService } from '@/services/catalogService'
 import { ReaderHistoryService } from '@/services/readerHistoryService'
+import { ReadingHistoryService } from '@/services/readingHistoryService'
 import { getErrorMessage, isNotFoundError } from '@/services/httpClient'
 import type { ChapterReader, ChapterSummary } from '@/types/catalog'
 import { formatChapterNumber, buildChapterUrl, compareChapterNumbers } from '@/utils/chapter'
+import CommentSection from '@/components/community/CommentSection.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -30,6 +32,7 @@ const isLoadingChapters = ref(false)
 const chapterListError = ref<string | null>(null)
 
 let latestRequestId = 0
+let lastSyncedHistoryKey = ''
 
 // Sorted images by page_number ascending
 const sortedImages = computed(() => {
@@ -137,6 +140,7 @@ async function loadChapterReader(slug: string, chapterNumber: string) {
   // Capture user identity at request initiation to prevent race conditions across account switches
   const initiatedUserId = authStore.user?.id ?? null
   isLoading.value = true
+  chapter.value = null
   errorMessage.value = null
   isNotFound.value = false
   notFoundMessage.value = ''
@@ -163,11 +167,40 @@ async function loadChapterReader(slug: string, chapterNumber: string) {
         response.data?.chapter_number &&
         currentUserId === initiatedUserId
       ) {
+        // 1. Always record in localStorage for backward compatibility with "Read Next" MVP
         ReaderHistoryService.saveLastRead(
           response.data.comic.slug,
           response.data.chapter_number,
           currentUserId
         )
+
+        // 2. For authenticated users, sync reading history to Backend asynchronously in background
+        if (
+          authStore.isAuthenticated &&
+          currentUserId !== null &&
+          response.data.comic.id &&
+          response.data.id
+        ) {
+          const comicId = response.data.comic.id
+          const chapterId = response.data.id
+          const historySyncKey = `${comicId}_${chapterId}_${currentUserId}`
+
+          // Deduplicate: avoid re-sending identical API call for the same comic, chapter, and user
+          if (lastSyncedHistoryKey !== historySyncKey) {
+            lastSyncedHistoryKey = historySyncKey
+            ReadingHistoryService.recordReadingHistory(comicId, { chapter_id: chapterId }).catch(
+              (err: unknown) => {
+                // Reset sync key on failure so retry or re-visiting can attempt sync again
+                if (lastSyncedHistoryKey === historySyncKey) {
+                  lastSyncedHistoryKey = ''
+                }
+                if (import.meta.env.DEV) {
+                  console.warn('[ComicReader] Failed to sync reading history to backend:', err)
+                }
+              }
+            )
+          }
+        }
       }
 
       // Prefetch chapters list in background if not already cached for this comic
@@ -552,6 +585,14 @@ onUnmounted(() => {
                 Chương tiếp theo ›
               </RouterLink>
             </div>
+          </div>
+
+          <!-- Comments Section (Package 9.4B) -->
+          <div class="reader-comments-wrapper">
+            <CommentSection
+              target-type="chapter"
+              :target-id="chapter.id"
+            />
           </div>
         </div>
       </footer>
@@ -1219,5 +1260,11 @@ onUnmounted(() => {
   .bottom-btn {
     width: 100%;
   }
+}
+
+.reader-comments-wrapper {
+  max-width: 820px;
+  margin: var(--spacing-2xl) auto 0;
+  width: 100%;
 }
 </style>

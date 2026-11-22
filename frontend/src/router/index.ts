@@ -64,6 +64,15 @@ const router = createRouter({
       },
     },
     {
+      path: '/library',
+      name: 'library',
+      component: () => import('@/pages/LibraryPage.vue'),
+      meta: {
+        title: 'Tủ sách của tôi — BlueToon',
+        requiresAuth: true,
+      },
+    },
+    {
       path: '/login',
       name: 'login',
       component: () => import('@/pages/LoginPage.vue'),

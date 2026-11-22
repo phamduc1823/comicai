@@ -52,6 +52,8 @@ export interface ComicDetail extends ComicListItem {
   banner_url: string | null
   ai_summary: string | null
   chapters: ChapterSummary[]
+  is_followed: boolean
+  is_bookmarked: boolean
 }
 
 export interface BannerComicSummary {
