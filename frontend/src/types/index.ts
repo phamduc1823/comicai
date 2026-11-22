@@ -35,4 +35,11 @@ export type {
   LikeResponse,
   PostSortOption,
   ListPostsParams,
+  CommentableType,
+  CommentAuthor,
+  CommentItemData,
+  CommentListResponse,
+  CreateCommentPayload,
+  ReplyCommentPayload,
+  ListCommentsParams,
 } from './community'

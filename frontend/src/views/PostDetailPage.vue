@@ -6,6 +6,7 @@ import { CommunityService } from '@/services/communityService'
 import { getErrorMessage, isNotFoundError } from '@/services/httpClient'
 import PostCard from '@/components/community/PostCard.vue'
 import PostFormModal from '@/components/community/PostFormModal.vue'
+import CommentSection from '@/components/community/CommentSection.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -83,6 +84,12 @@ function handlePostDeleted() {
   router.push('/community')
 }
 
+function handleCommentCountChange(count: number) {
+  if (post.value) {
+    post.value.comments_count = count
+  }
+}
+
 // Watch for route param ID changes when navigating between posts
 watch(
   () => route.params.id,
@@ -154,16 +161,12 @@ onUnmounted(() => {
           @deleted="handlePostDeleted"
         />
 
-        <!-- Informational banner regarding comments (Package 9.4B) -->
-        <div class="comments-placeholder-banner">
-          <div class="banner-icon" aria-hidden="true">💬</div>
-          <div class="banner-text">
-            <h3 class="banner-title">Khu vực bình luận ({{ post.comments_count }})</h3>
-            <p class="banner-desc">
-              Chức năng bình luận và thảo luận chi tiết sẽ sẵn sàng trong bản nâng cấp tiếp theo (Gói 9.4B).
-            </p>
-          </div>
-        </div>
+        <!-- Comments Section (Package 9.4B) -->
+        <CommentSection
+          target-type="post"
+          :target-id="post.id"
+          @comment-count-change="handleCommentCountChange"
+        />
       </section>
     </div>
 
@@ -299,38 +302,5 @@ onUnmounted(() => {
   gap: var(--spacing-lg);
 }
 
-/* Comments placeholder */
-.comments-placeholder-banner {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  padding: var(--spacing-lg);
-  background-color: var(--color-bg-surface);
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-lg);
-}
 
-.banner-icon {
-  font-size: 28px;
-  flex-shrink: 0;
-}
-
-.banner-text {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.banner-title {
-  font-size: var(--font-size-base);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-primary);
-  margin: 0;
-}
-
-.banner-desc {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  margin: 0;
-}
 </style>

@@ -83,3 +83,52 @@ export interface ListPostsParams {
   per_page?: number
   page?: number
 }
+
+/**
+ * Type definitions matching backend Community Comments APIs.
+ * Derived from CommentResource, CommentController, and StoreCommentRequest.
+ */
+
+export type CommentableType = 'post' | 'comic' | 'chapter'
+
+export interface CommentAuthor {
+  id: number
+  name: string
+  avatar_url: string | null
+  role: UserRole
+}
+
+export interface CommentItemData {
+  id: number
+  parent_id: number | null
+  commentable_type: CommentableType
+  commentable_id: number
+  content: string
+  likes_count: number
+  replies_count: number
+  is_liked: boolean
+  user: CommentAuthor
+  replies?: CommentItemData[]
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type CommentListResponse = PaginatedResponse<CommentItemData>
+
+export interface CreateCommentPayload {
+  commentable_type: CommentableType
+  commentable_id: number
+  content: string
+}
+
+export interface ReplyCommentPayload {
+  content: string
+}
+
+export interface ListCommentsParams {
+  commentable_type: CommentableType
+  commentable_id: number
+  page?: number
+  per_page?: number
+}
+
