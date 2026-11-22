@@ -1,0 +1,232 @@
+<?php
+
+namespace App\Services;
+
+use App\Events\ConversationUpdated;
+use App\Events\MessageSent;
+use App\Models\Conversation;
+use App\Models\ConversationParticipant;
+use App\Models\Message;
+use App\Models\User;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpKernel\Exception\HttpException;
+
+class MessageService
+{
+    public function __construct(
+        protected ?ConversationService $conversationService = null
+    ) {
+        $this->conversationService = $conversationService ?? app(ConversationService::class);
+    }
+    /**
+     * Get paginated messages for a conversation with cursor pagination.
+     * Always returns messages in chronological ascending order (id asc).
+     *
+     * @param array{limit?: int, before_id?: int|null, after_id?: int|null} $filters
+     * @return array{messages: Collection<int, Message>, limit: int, has_more: bool, next_cursor: int|null}
+     */
+    public function getMessages(User $user, Conversation $conversation, array $filters = []): array
+    {
+        $limit = isset($filters['limit']) ? (int) $filters['limit'] : 25;
+        if ($limit < 1) {
+            $limit = 25;
+        } elseif ($limit > 50) {
+            $limit = 50;
+        }
+
+        $beforeId = isset($filters['before_id']) ? (int) $filters['before_id'] : null;
+        $afterId = isset($filters['after_id']) ? (int) $filters['after_id'] : null;
+
+        // Strictly isolate query to the authorized conversation
+        $query = Message::where('conversation_id', $conversation->id);
+
+        if ($afterId !== null) {
+            // Case 1: Polling or fetching newer messages (id > after_id)
+            $query->where('id', '>', $afterId)
+                ->orderBy('id', 'asc')
+                ->limit($limit + 1);
+
+            $messages = $query->get();
+            $hasMore = $messages->count() > $limit;
+
+            if ($hasMore) {
+                $messages = $messages->slice(0, $limit);
+            }
+
+            $nextCursor = $hasMore && $messages->isNotEmpty() ? $messages->last()->id : null;
+
+            return [
+                'messages' => $messages->values(),
+                'limit' => $limit,
+                'has_more' => $hasMore,
+                'next_cursor' => $nextCursor,
+            ];
+        }
+
+        if ($beforeId !== null) {
+            // Case 2: Scrolling up / fetching older messages (id < before_id)
+            $query->where('id', '<', $beforeId)
+                ->orderBy('id', 'desc')
+                ->limit($limit + 1);
+
+            $messages = $query->get();
+            $hasMore = $messages->count() > $limit;
+
+            if ($hasMore) {
+                $messages = $messages->slice(0, $limit);
+            }
+
+            // Reverse to ensure chronological ascending order in response
+            $messages = $messages->reverse()->values();
+            $nextCursor = $hasMore && $messages->isNotEmpty() ? $messages->first()->id : null;
+
+            return [
+                'messages' => $messages,
+                'limit' => $limit,
+                'has_more' => $hasMore,
+                'next_cursor' => $nextCursor,
+            ];
+        }
+
+        // Case 3: Initial conversation open (fetch latest messages)
+        $query->orderBy('id', 'desc')
+            ->limit($limit + 1);
+
+        $messages = $query->get();
+        $hasMore = $messages->count() > $limit;
+
+        if ($hasMore) {
+            $messages = $messages->slice(0, $limit);
+        }
+
+        // Reverse to ensure chronological ascending order in response
+        $messages = $messages->reverse()->values();
+        $nextCursor = $hasMore && $messages->isNotEmpty() ? $messages->first()->id : null;
+
+        return [
+            'messages' => $messages,
+            'limit' => $limit,
+            'has_more' => $hasMore,
+            'next_cursor' => $nextCursor,
+        ];
+    }
+
+    /**
+     * Send a new message to the conversation with strict idempotency and atomic updates.
+     *
+     * @param array{body: string, type?: string, client_message_id?: string|null} $data
+     * @return array{message: Message, status: int}
+     */
+    public function sendMessage(User $user, Conversation $conversation, array $data): array
+    {
+        $body = (string) $data['body'];
+        $type = isset($data['type']) && is_string($data['type']) ? $data['type'] : 'text';
+        $clientMessageId = isset($data['client_message_id']) && is_string($data['client_message_id']) && trim($data['client_message_id']) !== ''
+            ? trim($data['client_message_id'])
+            : null;
+
+        // Idempotency pre-check if client_message_id is provided
+        if ($clientMessageId !== null) {
+            $existing = Message::where('conversation_id', $conversation->id)
+                ->where('sender_id', $user->id)
+                ->where('client_message_id', $clientMessageId)
+                ->first();
+
+            if ($existing) {
+                if ($existing->body === $body && $existing->type === $type) {
+                    // Retry with same key & identical content -> HTTP 200 OK (idempotent replay)
+                    return [
+                        'message' => $existing,
+                        'status' => 200,
+                    ];
+                }
+
+                // Retry with same key but different content -> HTTP 409 Conflict
+                throw new HttpException(409, 'Xung đột idempotency: client_message_id này đã tồn tại với nội dung khác.');
+            }
+        }
+
+        // Create message and update conversation within a single database transaction
+        try {
+            $result = DB::transaction(function () use ($user, $conversation, $body, $type, $clientMessageId) {
+                $message = Message::create([
+                    'conversation_id' => $conversation->id,
+                    'sender_id' => $user->id,
+                    'type' => $type,
+                    'body' => $body,
+                    'client_message_id' => $clientMessageId,
+                ]);
+
+                // Atomically update conversation last_message if this message is newer
+                Conversation::where('id', $conversation->id)
+                    ->where(function ($query) use ($message) {
+                        $query->whereNull('last_message_id')
+                            ->orWhere('last_message_id', '<', $message->id);
+                    })
+                    ->update([
+                        'last_message_id' => $message->id,
+                        'last_message_at' => $message->created_at,
+                    ]);
+
+                return $message;
+            });
+
+            // Broadcast events OUTSIDE transaction after successful commit
+            try {
+                broadcast(new MessageSent($result))->toOthers();
+
+                $recipients = ConversationParticipant::where('conversation_id', $conversation->id)
+                    ->where('user_id', '!=', $user->id)
+                    ->get();
+
+                foreach ($recipients as $recipient) {
+                    $unreadCount = $this->conversationService->calculateUnreadCount($conversation, $recipient->user_id);
+                    broadcast(new ConversationUpdated(
+                        $conversation->id,
+                        $recipient->user_id,
+                        $result,
+                        $unreadCount
+                    ));
+                }
+            } catch (\Throwable $e) {
+                report($e);
+            }
+
+            return [
+                'message' => $result,
+                'status' => 201,
+            ];
+        } catch (QueryException $e) {
+            // Check if duplicate client_message_id race condition occurred
+            $isDuplicateKey = false;
+            if ($clientMessageId !== null) {
+                if (isset($e->errorInfo[1]) && $e->errorInfo[1] === 1062 && str_contains($e->getMessage(), 'unique_client_message')) {
+                    $isDuplicateKey = true; // MySQL
+                } elseif (str_contains($e->getMessage(), 'unique_client_message') || str_contains($e->getMessage(), 'messages.conversation_id, messages.sender_id, messages.client_message_id')) {
+                    $isDuplicateKey = true; // SQLite
+                }
+            }
+
+            if ($isDuplicateKey) {
+                $existing = Message::where('conversation_id', $conversation->id)
+                    ->where('sender_id', $user->id)
+                    ->where('client_message_id', $clientMessageId)
+                    ->firstOrFail();
+
+                if ($existing->body === $body && $existing->type === $type) {
+                    return [
+                        'message' => $existing,
+                        'status' => 200,
+                    ];
+                }
+
+                throw new HttpException(409, 'Xung đột idempotency: client_message_id này đã tồn tại với nội dung khác.');
+            }
+
+            // Strictly rethrow any other database exception
+            throw $e;
+        }
+    }
+}

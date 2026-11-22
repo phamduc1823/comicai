@@ -2,6 +2,8 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { User, UserRole, LoginCredentials, RegisterData } from '@/types/auth'
 import { AuthService } from '@/services/authService'
+import { disconnectEcho } from '@/services/echoService'
+import { useChatStore } from '@/stores/chat'
 import {
   isUnauthorizedError,
   isForbiddenError,
@@ -165,6 +167,8 @@ export const useAuthStore = defineStore('auth', () => {
       await AuthService.logout()
       user.value = null
       sessionStatus.value = 'guest'
+      disconnectEcho()
+      useChatStore().$reset()
     } catch (err: unknown) {
       error.value = getErrorMessage(err, 'Đăng xuất không thành công. Vui lòng thử lại.')
       throw err

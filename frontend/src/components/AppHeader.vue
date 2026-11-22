@@ -1,13 +1,32 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, toRef, watch } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
+import { useChatStore } from '@/stores/chat'
+import { useChatEcho } from '@/composables/useChatEcho'
 import { getErrorMessage } from '@/services/httpClient'
 
 const router = useRouter()
 const appStore = useAppStore()
 const authStore = useAuthStore()
+const chatStore = useChatStore()
+
+// Subscribe user channel for real-time unread badge updates across entire app
+useChatEcho({
+  userRef: toRef(authStore, 'user'),
+})
+
+// Fetch initial unread count when user becomes authenticated
+watch(
+  () => authStore.isAuthenticated,
+  (isAuth) => {
+    if (isAuth) {
+      chatStore.fetchUnreadCount()
+    }
+  },
+  { immediate: true }
+)
 
 const isLoggingOut = ref(false)
 const logoutError = ref<string | null>(null)
@@ -63,6 +82,21 @@ async function handleLogout() {
         <RouterLink to="/comics" class="nav-link" active-class="active">Danh mục</RouterLink>
         <RouterLink to="/community" class="nav-link" active-class="active">Cộng đồng</RouterLink>
         <RouterLink to="/library" class="nav-link" active-class="active">Tủ sách</RouterLink>
+        <RouterLink
+          v-if="authStore.isAuthenticated"
+          to="/chat"
+          class="nav-link nav-link-chat"
+          active-class="active"
+        >
+          <span>Tin nhắn</span>
+          <span
+            v-if="chatStore.totalUnreadCount > 0"
+            class="header-unread-badge"
+            :aria-label="chatStore.totalUnreadCount + ' tin nhắn chưa đọc'"
+          >
+            {{ chatStore.totalUnreadCount > 99 ? '99+' : chatStore.totalUnreadCount }}
+          </span>
+        </RouterLink>
       </nav>
 
       <!-- Auth section -->
@@ -228,6 +262,28 @@ async function handleLogout() {
 .nav-link.active {
   color: var(--color-primary);
   background-color: var(--color-primary-soft);
+}
+
+.nav-link-chat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+
+.header-unread-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-primary);
+  color: var(--color-text-inverse);
+  font-size: 10px;
+  font-weight: var(--font-weight-bold);
+  line-height: 1;
 }
 
 /* Auth Section */

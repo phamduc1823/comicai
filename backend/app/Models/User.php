@@ -161,4 +161,29 @@ class User extends Authenticatable
         return $this->hasMany(Report::class, 'resolved_by');
     }
 
+    /**
+     * Conversation participant records for this user.
+     */
+    public function conversationParticipants(): HasMany
+    {
+        return $this->hasMany(ConversationParticipant::class, 'user_id');
+    }
+
+    /**
+     * Conversations this user participates in (Many-to-Many).
+     */
+    public function conversations(): BelongsToMany
+    {
+        return $this->belongsToMany(Conversation::class, 'conversation_participants', 'user_id', 'conversation_id')
+            ->withPivot('last_read_message_id', 'last_read_at', 'is_muted')
+            ->withTimestamps();
+    }
+
+    /**
+     * Chat messages sent by this user.
+     */
+    public function sentMessages(): HasMany
+    {
+        return $this->hasMany(Message::class, 'sender_id');
+    }
 }

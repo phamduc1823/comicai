@@ -17,6 +17,8 @@ use Illuminate\Support\Facades\Route;
 
 use App\Http\Controllers\Api\ReadingHistoryController;
 use App\Http\Controllers\Api\UserLibraryController;
+use App\Http\Controllers\Api\ConversationController;
+use App\Http\Controllers\Api\MessageController;
 Route::get('/health', function () {
     return response()->json([
         'status' => 'ok',
@@ -81,6 +83,17 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::delete('/comics/{comicId}/reading-history', [ReadingHistoryController::class, 'destroy']);
     Route::get('/user/reading-history', [ReadingHistoryController::class, 'index']);
     Route::delete('/user/reading-history', [ReadingHistoryController::class, 'clear']);
+
+    // Realtime Chat APIs (Contract)
+    Route::prefix('chat')->name('chat.')->group(function () {
+        Route::get('/conversations', [ConversationController::class, 'index'])->name('conversations.index');
+        Route::post('/conversations', [ConversationController::class, 'store'])->name('conversations.store')->middleware('throttle:30,1');
+        Route::get('/conversations/{conversation}', [ConversationController::class, 'show'])->name('conversations.show');
+        Route::get('/conversations/{conversation}/messages', [MessageController::class, 'index'])->name('messages.index');
+        Route::post('/conversations/{conversation}/messages', [MessageController::class, 'store'])->name('messages.store')->middleware('throttle:60,1');
+        Route::post('/conversations/{conversation}/read', [ConversationController::class, 'markAsRead'])->name('conversations.read')->middleware('throttle:60,1');
+        Route::get('/unread-count', [ConversationController::class, 'unreadCount'])->name('unread-count');
+    });
 });
 
 // Creator Comic & Chapter Management endpoints (creator and admin)

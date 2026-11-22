@@ -5,12 +5,14 @@ namespace App\Providers;
 use App\Models\Chapter;
 use App\Models\Comic;
 use App\Models\Comment;
+use App\Models\Conversation;
 use App\Models\Post;
 use App\Models\Report;
 use App\Models\User;
 use App\Policies\ChapterPolicy;
 use App\Policies\ComicPolicy;
 use App\Policies\CommentPolicy;
+use App\Policies\ConversationPolicy;
 use App\Policies\PostPolicy;
 use App\Policies\ReportPolicy;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -37,6 +39,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Post::class, PostPolicy::class);
         Gate::policy(Comment::class, CommentPolicy::class);
         Gate::policy(Report::class, ReportPolicy::class);
+        Gate::policy(Conversation::class, ConversationPolicy::class);
 
         Relation::morphMap([
             'post' => Post::class,

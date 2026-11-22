@@ -27,6 +27,7 @@ export * from './creator'
 export * from './admin'
 export * from './userLibrary'
 export * from './readingHistory'
+export * from './chat'
 export type {
   Post,
   PostAuthor,

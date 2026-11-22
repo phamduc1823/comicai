@@ -4,6 +4,16 @@ import type { ApiValidationErrorResponse } from '@/types/auth'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 
 /**
+ * Socket ID provider callback for Laravel Echo integration.
+ * Avoids circular dependencies between Echo and HttpClient.
+ */
+let socketIdProvider: (() => string | undefined) | null = null
+
+export function setSocketIdProvider(provider: (() => string | undefined) | null): void {
+  socketIdProvider = provider
+}
+
+/**
  * Unified Axios instance configured for Laravel Sanctum SPA authentication.
  * Uses withCredentials: true to send and receive SPA session cookies.
  * Configured with XSRF tokens supported in Axios ^1.21.0.
@@ -35,6 +45,18 @@ httpClient.interceptors.request.use((config) => {
   if (typeof FormData !== 'undefined' && config.data instanceof FormData && config.headers) {
     delete config.headers['Content-Type']
     delete config.headers['content-type']
+  }
+
+  // Attach X-Socket-ID header when Echo is connected and has a valid socket ID
+  if (socketIdProvider && config.headers) {
+    try {
+      const socketId = socketIdProvider()
+      if (socketId) {
+        config.headers['X-Socket-ID'] = socketId
+      }
+    } catch {
+      // Continue without socket ID on any provider error
+    }
   }
 
   return config

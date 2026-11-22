@@ -73,6 +73,15 @@ const router = createRouter({
       },
     },
     {
+      path: '/chat',
+      name: 'chat',
+      component: () => import('@/pages/ChatPage.vue'),
+      meta: {
+        title: 'Trò chuyện — BlueToon',
+        requiresAuth: true,
+      },
+    },
+    {
       path: '/login',
       name: 'login',
       component: () => import('@/pages/LoginPage.vue'),
