@@ -7,7 +7,10 @@ use App\Http\Resources\ChapterReaderResource;
 use App\Http\Resources\ChapterSummaryResource;
 use App\Models\Chapter;
 use App\Models\Comic;
+use App\Services\Contracts\ChapterUnlockServiceInterface;
+use App\Services\Contracts\WalletServiceInterface;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class ChapterController extends Controller
@@ -18,6 +21,7 @@ class ChapterController extends Controller
     public function index(string $slug): JsonResponse|AnonymousResourceCollection
     {
         $comic = Comic::query()
+            ->select(['id', 'title', 'slug', 'user_id', 'approval_status'])
             ->where('slug', $slug)
             ->where('approval_status', 'approved')
             ->first();
@@ -42,7 +46,7 @@ class ChapterController extends Controller
     /**
      * Display the specified published chapter with reading pages and navigation.
      */
-    public function show(string $slug, string $chapterNumber): JsonResponse|ChapterReaderResource
+    public function show(Request $request, string $slug, string $chapterNumber): JsonResponse|ChapterReaderResource
     {
         // Validate chapter number against DECIMAL(6,2) range and format
         if (! preg_match('/^[0-9]{1,4}(\.[0-9]{1,2})?$/', $chapterNumber)) {
@@ -55,6 +59,7 @@ class ChapterController extends Controller
         $canonicalNumber = sprintf('%.2f', (float) $chapterNumber);
 
         $comic = Comic::query()
+            ->select(['id', 'title', 'slug', 'user_id', 'approval_status'])
             ->where('slug', $slug)
             ->where('approval_status', 'approved')
             ->first();
@@ -119,6 +124,32 @@ class ChapterController extends Controller
             ] : null,
         ];
 
-        return new ChapterReaderResource($chapter, $navigation);
+        // VIP access evaluation
+        $vipContext = [
+            'is_vip' => (bool) $chapter->is_vip,
+            'is_unlocked' => true,
+        ];
+
+        if ($chapter->is_vip) {
+            $user = $request->user('sanctum') ?? auth('sanctum')->user() ?? $request->user();
+            $unlockService = app(ChapterUnlockServiceInterface::class);
+            $canAccess = $unlockService->canAccessChapter($user, $chapter);
+
+            if ($canAccess) {
+                $vipContext['is_unlocked'] = true;
+                if ($user && ($user->role === 'admin' || $comic->user_id === $user->id)) {
+                    $vipContext['bypass_reason'] = 'creator_or_admin';
+                }
+            } else {
+                $vipContext['is_unlocked'] = false;
+                $chapter->setRelation('images', collect([]));
+                if ($user) {
+                    $walletService = app(WalletServiceInterface::class);
+                    $vipContext['user_balance'] = $walletService->getBalance($user);
+                }
+            }
+        }
+
+        return new ChapterReaderResource($chapter, $navigation, $vipContext);
     }
 }

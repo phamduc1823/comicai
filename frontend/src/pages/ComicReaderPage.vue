@@ -7,12 +7,16 @@ import { ReaderHistoryService } from '@/services/readerHistoryService'
 import { ReadingHistoryService } from '@/services/readingHistoryService'
 import { getErrorMessage, isNotFoundError } from '@/services/httpClient'
 import type { ChapterReader, ChapterSummary } from '@/types/catalog'
+import type { UnlockChapterResult } from '@/types/wallet'
 import { formatChapterNumber, buildChapterUrl, compareChapterNumbers } from '@/utils/chapter'
 import CommentSection from '@/components/community/CommentSection.vue'
+import VipUnlockModal from '@/components/common/VipUnlockModal.vue'
+import { useWalletStore } from '@/stores/wallet'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const walletStore = useWalletStore()
 
 // Data states
 const chapter = ref<ChapterReader | null>(null)
@@ -21,6 +25,11 @@ const isNotFound = ref(false)
 const notFoundMessage = ref('')
 const errorMessage = ref<string | null>(null)
 const failedPages = ref<Record<number, boolean>>({})
+
+// VIP Unlock State
+const isUnlockModalOpen = ref(false)
+const unlockSuccessToast = ref<string | null>(null)
+let unlockToastTimer: ReturnType<typeof setTimeout> | null = null
 
 // Chapter Selector State
 const selectorRef = ref<HTMLElement | null>(null)
@@ -56,6 +65,37 @@ const chapterDisplayTitle = computed(() => {
 
 function handlePageError(imageId: number) {
   failedPages.value[imageId] = true
+}
+
+function handleChapterUnlocked(result: UnlockChapterResult) {
+  walletStore.updateBalance(result.remaining_balance)
+  if (chapter.value) {
+    chapter.value.is_unlocked = true
+  }
+  const slug = String(route.params.slug || '')
+  const chapterNumber = String(route.params.chapterNumber || '')
+  if (slug && chapterNumber) {
+    loadChapterReader(slug, chapterNumber)
+  }
+  showUnlockToast('Mở khóa chương VIP thành công! Bạn có thể đọc ngay bây giờ.')
+}
+
+function showUnlockToast(msg: string) {
+  if (unlockToastTimer) clearTimeout(unlockToastTimer)
+  unlockSuccessToast.value = msg
+  unlockToastTimer = setTimeout(() => {
+    unlockSuccessToast.value = null
+  }, 4500)
+}
+
+async function handleQuickFaucet() {
+  if (walletStore.isClaimingFaucet || !walletStore.canClaimFaucet) return
+  try {
+    const res = await walletStore.claimFaucet()
+    showUnlockToast(`Đã nhận ${res.faucet_amount} Coin miễn phí! Số dư hiện tại: ${res.balance_after} Coin.`)
+  } catch (err: unknown) {
+    errorMessage.value = getErrorMessage(err, 'Không thể nhận Coin thử nghiệm.')
+  }
 }
 
 /**
@@ -302,6 +342,9 @@ watch(
 )
 
 onMounted(() => {
+  if (authStore.isAuthenticated) {
+    walletStore.fetchWallet()
+  }
   const slug = String(route.params.slug || '')
   const chapterNumber = String(route.params.chapterNumber || '')
   if (slug && chapterNumber) {
@@ -380,6 +423,22 @@ onUnmounted(() => {
     <div v-else-if="chapter" class="reader-view">
       <!-- Sticky Top Navigation Bar -->
       <header class="reader-top-bar">
+        <!-- Unlock Toast Notification -->
+        <transition name="toast-fade">
+          <div v-if="unlockSuccessToast" class="reader-unlock-toast" role="status">
+            <span class="toast-icon" aria-hidden="true">🎉</span>
+            <span class="toast-msg">{{ unlockSuccessToast }}</span>
+            <button
+              type="button"
+              class="toast-close"
+              aria-label="Đóng thông báo"
+              @click="unlockSuccessToast = null"
+            >
+              ✕
+            </button>
+          </div>
+        </transition>
+
         <div class="container top-bar-container">
           <!-- Back Link to Comic Detail -->
           <RouterLink
@@ -408,6 +467,14 @@ onUnmounted(() => {
               </span>
               <span v-if="chapter.title" class="selector-current-title">
                 : {{ chapter.title }}
+              </span>
+              <span
+                v-if="chapter.is_vip"
+                class="badge-vip-pill"
+                :class="{ 'is-unlocked': chapter.is_unlocked }"
+                :title="chapter.is_unlocked ? 'Chương VIP (Đã mở khóa)' : `Chương VIP (${chapter.price} Coin)`"
+              >
+                {{ chapter.is_unlocked ? '👑 VIP' : `👑 ${chapter.price}C` }}
               </span>
               <span class="selector-chevron" aria-hidden="true">{{ isSelectorOpen ? '▲' : '▼' }}</span>
             </button>
@@ -466,6 +533,7 @@ onUnmounted(() => {
                     <div class="option-left">
                       <span class="option-num">Chương {{ formatChapterNumber(chapItem.chapter_number) }}</span>
                       <span v-if="chapItem.title" class="option-title">{{ chapItem.title }}</span>
+                      <span v-if="chapItem.is_vip" class="option-vip-tag">👑 VIP</span>
                     </div>
                     <span v-if="isCurrentChapter(chapItem.chapter_number)" class="option-badge">
                       Đang đọc
@@ -511,8 +579,71 @@ onUnmounted(() => {
 
       <!-- Main Reading Area (Vertical Scroll) -->
       <main class="reader-canvas" aria-label="Nội dung trang truyện">
+        <!-- VIP Paywall Notice (When chapter is VIP and not yet unlocked) -->
+        <div v-if="chapter.is_vip && !chapter.is_unlocked" class="vip-paywall-card" role="region" aria-label="Khóa chương VIP">
+          <div class="paywall-crown-wrap" aria-hidden="true">
+            <span class="paywall-crown">👑</span>
+          </div>
+          <h2 class="paywall-title">Chương VIP</h2>
+          <p class="paywall-subtitle">
+            Chương này yêu cầu <strong>{{ chapter.price }} Coin</strong> để mở khóa quyền đọc vĩnh viễn.
+          </p>
+
+          <!-- Authenticated Reader State -->
+          <div v-if="authStore.isAuthenticated" class="paywall-user-box">
+            <div class="paywall-balance-row">
+              <span class="p-label">Số dư Coin của bạn:</span>
+              <span class="p-val font-bold text-yellow-500">{{ walletStore.formattedBalance }} Coin</span>
+            </div>
+
+            <!-- Sufficient Balance -->
+            <div v-if="walletStore.balance >= (chapter.price || 0)" class="paywall-actions">
+              <button
+                type="button"
+                class="btn-unlock-large"
+                @click="isUnlockModalOpen = true"
+              >
+                Mở khóa ngay ({{ chapter.price }} Coin) 🔓
+              </button>
+            </div>
+
+            <!-- Insufficient Balance -->
+            <div v-else class="paywall-insufficient">
+              <p class="insufficient-msg">
+                Số dư hiện tại không đủ (còn thiếu {{ (chapter.price || 0) - walletStore.balance }} Coin).
+              </p>
+              <div class="insufficient-actions">
+                <button
+                  v-if="walletStore.canClaimFaucet"
+                  type="button"
+                  class="btn-faucet-quick"
+                  :disabled="walletStore.isClaimingFaucet"
+                  @click="handleQuickFaucet"
+                >
+                  <span v-if="walletStore.isClaimingFaucet" class="btn-spinner" aria-hidden="true"></span>
+                  <span>{{ walletStore.isClaimingFaucet ? 'Đang nhận...' : '🎁 Nhận 100 Coin miễn phí' }}</span>
+                </button>
+                <RouterLink to="/wallet" class="btn-goto-wallet">
+                  Đi đến Ví Coin →
+                </RouterLink>
+              </div>
+            </div>
+          </div>
+
+          <!-- Guest State -->
+          <div v-else class="paywall-guest-box">
+            <p class="guest-msg">Vui lòng đăng nhập để mở khóa chương truyện VIP bằng Coin.</p>
+            <RouterLink
+              :to="'/login?redirect=' + encodeURIComponent(route.fullPath)"
+              class="btn-login-to-unlock"
+            >
+              Đăng nhập để mở khóa →
+            </RouterLink>
+          </div>
+        </div>
+
         <!-- Empty Pages Notice -->
-        <div v-if="!chapter.images || chapter.images.length === 0" class="empty-pages-notice">
+        <div v-else-if="!chapter.images || chapter.images.length === 0" class="empty-pages-notice">
           <span class="empty-icon" aria-hidden="true">🖼️</span>
           <h2 class="empty-title">Chương này chưa có hình ảnh</h2>
           <p class="empty-desc">
@@ -597,6 +728,20 @@ onUnmounted(() => {
         </div>
       </footer>
     </div>
+
+    <!-- VIP Unlock Confirmation Modal -->
+    <VipUnlockModal
+      v-if="chapter && chapter.is_vip && !chapter.is_unlocked"
+      :is-open="isUnlockModalOpen"
+      :chapter-id="chapter.id"
+      :chapter-number="chapter.chapter_number"
+      :chapter-title="chapter.title"
+      :comic-title="chapter.comic.title"
+      :price="chapter.price || 0"
+      :user-balance="walletStore.balance"
+      @close="isUnlockModalOpen = false"
+      @unlocked="handleChapterUnlocked"
+    />
   </div>
 </template>
 
@@ -1266,5 +1411,242 @@ onUnmounted(() => {
   max-width: 820px;
   margin: var(--spacing-2xl) auto 0;
   width: 100%;
+}
+
+/* VIP Badges & Indicators */
+.badge-vip-pill {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  background: rgba(234, 179, 8, 0.18);
+  color: #eab308;
+  border: 1px solid rgba(234, 179, 8, 0.4);
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+.badge-vip-pill.is-unlocked {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  border-color: rgba(34, 197, 94, 0.4);
+}
+
+.option-vip-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(234, 179, 8, 0.18);
+  color: #eab308;
+  margin-left: 6px;
+}
+
+/* Reader Unlock Toast Notification */
+.reader-unlock-toast {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 8px;
+  background: #15803d;
+  color: #ffffff;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  z-index: 100;
+  white-space: nowrap;
+}
+
+.toast-close {
+  background: none;
+  border: none;
+  color: #ffffff;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 4px;
+  opacity: 0.8;
+}
+
+.toast-close:hover {
+  opacity: 1;
+}
+
+/* VIP Paywall Card */
+.vip-paywall-card {
+  max-width: 600px;
+  margin: 60px auto;
+  background: var(--color-bg-surface);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  border-radius: var(--radius-xl);
+  padding: 40px 32px;
+  text-align: center;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4), 0 0 20px rgba(234, 179, 8, 0.08);
+}
+
+.paywall-crown-wrap {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+}
+
+.paywall-crown {
+  font-size: 36px;
+}
+
+.paywall-title {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--color-text);
+  margin: 0 0 8px 0;
+}
+
+.paywall-subtitle {
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+  margin: 0 0 24px 0;
+  line-height: 1.5;
+}
+
+.paywall-user-box {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.paywall-balance-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--font-size-sm);
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.p-label {
+  color: var(--color-text-muted);
+}
+
+.p-val {
+  font-weight: 700;
+  color: #eab308;
+  font-size: 16px;
+}
+
+.btn-unlock-large {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #eab308, #ca8a04);
+  color: #000000;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.btn-unlock-large:hover {
+  transform: translateY(-2px);
+  opacity: 0.95;
+}
+
+.paywall-insufficient {
+  text-align: center;
+}
+
+.insufficient-msg {
+  font-size: var(--font-size-sm);
+  color: #f87171;
+  margin: 0 0 16px 0;
+}
+
+.insufficient-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+@media (min-width: 480px) {
+  .insufficient-actions {
+    flex-direction: row;
+    justify-content: center;
+  }
+}
+
+.btn-faucet-quick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 18px;
+  background: #4f46e5;
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-goto-wallet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 18px;
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.btn-goto-wallet:hover {
+  color: var(--color-text);
+  border-color: var(--color-text-muted);
+}
+
+.paywall-guest-box {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+}
+
+.guest-msg {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0 0 16px 0;
+}
+
+.btn-login-to-unlock {
+  display: inline-block;
+  padding: 10px 24px;
+  background: var(--color-primary);
+  color: #ffffff;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-decoration: none;
 }
 </style>

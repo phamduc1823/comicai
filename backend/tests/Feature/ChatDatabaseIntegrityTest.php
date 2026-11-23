@@ -466,8 +466,16 @@ class ChatDatabaseIntegrityTest extends TestCase
 
     public function test_25_migration_rollback(): void
     {
-        // Rollback the 4 chat migrations
-        Artisan::call('migrate:rollback', ['--step' => 4]);
+        // Rollback the 4 chat migrations specifically
+        $chatMigrationPaths = [
+            'database/migrations/2026_11_17_000004_add_last_message_foreign_keys.php',
+            'database/migrations/2026_11_17_000003_create_messages_table.php',
+            'database/migrations/2026_11_17_000002_create_conversation_participants_table.php',
+            'database/migrations/2026_11_17_000001_create_conversations_table.php',
+        ];
+        foreach ($chatMigrationPaths as $path) {
+            Artisan::call('migrate:rollback', ['--path' => $path]);
+        }
 
         $this->assertFalse(Schema::hasTable('messages'));
         $this->assertFalse(Schema::hasTable('conversation_participants'));
@@ -476,9 +484,19 @@ class ChatDatabaseIntegrityTest extends TestCase
 
     public function test_26_migration_rerun(): void
     {
-        // Rollback then re-run
-        Artisan::call('migrate:rollback', ['--step' => 4]);
-        Artisan::call('migrate');
+        // Rollback then re-run chat migrations
+        $chatMigrationPaths = [
+            'database/migrations/2026_11_17_000004_add_last_message_foreign_keys.php',
+            'database/migrations/2026_11_17_000003_create_messages_table.php',
+            'database/migrations/2026_11_17_000002_create_conversation_participants_table.php',
+            'database/migrations/2026_11_17_000001_create_conversations_table.php',
+        ];
+        foreach ($chatMigrationPaths as $path) {
+            Artisan::call('migrate:rollback', ['--path' => $path]);
+        }
+        foreach (array_reverse($chatMigrationPaths) as $path) {
+            Artisan::call('migrate', ['--path' => $path]);
+        }
 
         $this->assertTrue(Schema::hasTable('conversations'));
         $this->assertTrue(Schema::hasTable('conversation_participants'));
@@ -492,8 +510,8 @@ class ChatDatabaseIntegrityTest extends TestCase
         }
 
         try {
-            // Rollback to before migration 4
-            Artisan::call('migrate:rollback', ['--step' => 1]);
+            // Rollback to before migration 4 specifically
+            Artisan::call('migrate:rollback', ['--path' => 'database/migrations/2026_11_17_000004_add_last_message_foreign_keys.php']);
 
             // Insert conversation and message data before migration 4 adds the FK
             $userA = User::factory()->create();
@@ -518,7 +536,7 @@ class ChatDatabaseIntegrityTest extends TestCase
             DB::table('conversations')->where('id', $cId)->update(['last_message_id' => $mId]);
 
             // Now run migration 4 (adding foreign key with pre-existing data)
-            Artisan::call('migrate');
+            Artisan::call('migrate', ['--path' => 'database/migrations/2026_11_17_000004_add_last_message_foreign_keys.php']);
 
             $this->assertDatabaseHas('conversations', [
                 'id' => $cId,

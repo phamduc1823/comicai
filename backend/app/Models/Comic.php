@@ -56,6 +56,7 @@ class Comic extends Model
         'pending_changes',
         'ai_summary',
         'embedding',
+        'embedding_hash',
     ];
 
     /**
@@ -165,12 +166,19 @@ class Comic extends Model
 
     /**
      * Bootstrap the model and its events.
-     * Clean up polymorphic comments when comic is deleted.
+     * Clean up polymorphic comments when comic is deleted and flush banner cache when needed.
      */
     protected static function booted(): void
     {
+        static::saved(function (Comic $comic) {
+            if ($comic->wasChanged('approval_status')) {
+                Banner::flushCache();
+            }
+        });
+
         static::deleting(function (Comic $comic) {
             $comic->comments()->delete();
+            Banner::flushCache();
         });
     }
 }

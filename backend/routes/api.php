@@ -2,10 +2,12 @@
 
 use App\Http\Controllers\Api\AdminChapterModerationController;
 use App\Http\Controllers\Api\AdminComicModerationController;
+use App\Http\Controllers\Api\AdminVipModerationController;
 use App\Http\Controllers\Api\AiSearchController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BannerController;
 use App\Http\Controllers\Api\ChapterController;
+use App\Http\Controllers\Api\ChapterUnlockController;
 use App\Http\Controllers\Api\ComicController;
 use App\Http\Controllers\Api\CommentController;
 use App\Http\Controllers\Api\ConversationController;
@@ -18,6 +20,7 @@ use App\Http\Controllers\Api\ReadingHistoryController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\TagController;
 use App\Http\Controllers\Api\UserLibraryController;
+use App\Http\Controllers\Api\WalletController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', function () {
@@ -96,6 +99,12 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::post('/conversations/{conversation}/read', [ConversationController::class, 'markAsRead'])->name('conversations.read')->middleware('throttle:60,1');
         Route::get('/unread-count', [ConversationController::class, 'unreadCount'])->name('unread-count');
     });
+
+    // Coin Wallet & VIP Chapter Unlock (Phase 5)
+    Route::get('/wallet', [WalletController::class, 'show']);
+    Route::get('/wallet/transactions', [WalletController::class, 'transactions']);
+    Route::post('/wallet/faucet', [WalletController::class, 'faucet'])->middleware('throttle:60,1');
+    Route::post('/chapters/{id}/unlock', [ChapterUnlockController::class, 'unlock']);
 });
 
 // Creator Comic & Chapter Management endpoints (creator and admin)
@@ -145,4 +154,10 @@ Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/repor
     Route::get('/{id}', [ReportController::class, 'show']);
     Route::match(['patch', 'put'], '/{id}', [ReportController::class, 'update']);
 });
+
+// Admin VIP Moderation endpoints (strictly admin only)
+Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/vip')->group(function () {
+    Route::post('/refund', [AdminVipModerationController::class, 'refund']);
+});
+
 

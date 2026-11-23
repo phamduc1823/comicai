@@ -27,6 +27,8 @@ class Chapter extends Model
     protected $attributes = [
         'status' => 'draft',
         'views_count' => 0,
+        'is_vip' => false,
+        'price' => 0,
     ];
 
     /**
@@ -42,6 +44,8 @@ class Chapter extends Model
         'slug',
         'status',
         'rejection_reason',
+        'is_vip',
+        'price',
     ];
 
     /**
@@ -56,6 +60,8 @@ class Chapter extends Model
             'chapter_number' => 'decimal:2',
             'views_count' => 'integer',
             'approved_at' => 'datetime',
+            'is_vip' => 'boolean',
+            'price' => 'integer',
         ];
     }
 
@@ -97,6 +103,14 @@ class Chapter extends Model
     public function comments(): MorphMany
     {
         return $this->morphMany(Comment::class, 'commentable');
+    }
+
+    /**
+     * VIP unlocks for this chapter.
+     */
+    public function unlocks(): HasMany
+    {
+        return $this->hasMany(ChapterUnlock::class, 'chapter_id');
     }
 
     /**

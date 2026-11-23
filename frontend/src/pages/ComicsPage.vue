@@ -188,6 +188,15 @@ function onModeChange() {
 }
 
 /**
+ * Programmatically switch search mode (normal <-> ai).
+ */
+function switchSearchMode(mode: 'normal' | 'ai') {
+  if (searchMode.value === mode) return
+  searchMode.value = mode
+  onModeChange()
+}
+
+/**
  * Fetch comics list from API using current route query parameters.
  */
 async function fetchComics() {
@@ -457,14 +466,25 @@ onUnmounted(() => {
             </button>
           </form>
 
+          <!-- AI Mode Helper/Hint Banner (Package 10.4D) -->
+          <div v-if="searchMode === 'ai' && !aiFallbackNotice" class="ai-mode-hint-box" role="note">
+            <span class="ai-hint-sparkle" aria-hidden="true">✨</span>
+            <span class="ai-hint-desc">
+              Chế độ tìm kiếm AI ngữ nghĩa (Hybrid Semantic Search): Tìm theo nhân vật, cốt truyện, hoặc bối cảnh mơ hồ.
+            </span>
+          </div>
+
           <!-- AI Loading State -->
           <div v-if="isLoading && searchMode === 'ai'" class="ai-loading-indicator" role="status">
-            <span class="ai-sparkle">✨</span> Gemini 2.5 Flash đang phân tích trí nhớ và tìm kiếm trong thư viện...
+            <span class="ai-sparkle">✨</span> Đang phân tích truy vấn và đối chiếu ngữ nghĩa trong thư viện...
           </div>
 
           <!-- AI Fallback Alert -->
           <div v-if="aiFallbackNotice && searchMode === 'ai'" class="ai-fallback-alert" role="alert">
-            <span class="fallback-icon">ℹ️</span> {{ aiFallbackNotice }}
+            <span class="fallback-icon">ℹ️</span>
+            <div class="fallback-content">
+              <strong>Thông báo chuyển hướng:</strong> {{ aiFallbackNotice }}
+            </div>
           </div>
         </div>
       </div>
@@ -604,7 +624,12 @@ onUnmounted(() => {
       <!-- Results Info Bar -->
       <div class="results-meta-bar">
         <span v-if="paginationMeta" class="results-count">
-          Tìm thấy <strong>{{ paginationMeta.total }}</strong> bộ truyện
+          <template v-if="searchMode === 'ai' && searchInput.trim()">
+            Tìm thấy <strong>{{ paginationMeta.total }}</strong> bộ truyện theo ngữ nghĩa AI
+          </template>
+          <template v-else>
+            Tìm thấy <strong>{{ paginationMeta.total }}</strong> bộ truyện
+          </template>
         </span>
         <span v-else-if="!isLoading" class="results-count">
           Đang cập nhật danh sách truyện
@@ -640,20 +665,38 @@ onUnmounted(() => {
 
       <!-- Empty State -->
       <div v-else-if="comics.length === 0" class="state-container empty-state">
-        <span class="state-icon" aria-hidden="true">🔍</span>
-        <h2 class="state-title">Không tìm thấy truyện phù hợp</h2>
+        <span class="state-icon" aria-hidden="true">{{ searchMode === 'ai' ? '✨' : '🔍' }}</span>
+        <h2 class="state-title">
+          {{ searchMode === 'ai' ? 'Chưa tìm thấy truyện phù hợp với mô tả AI' : 'Không tìm thấy truyện phù hợp' }}
+        </h2>
         <p class="state-desc">
-          Không có bộ truyện nào thỏa mãn các tiêu chí tìm kiếm hoặc bộ lọc hiện tại của bạn.
+          <template v-if="searchMode === 'ai'">
+            Không có bộ truyện nào đạt ngưỡng phù hợp ngữ nghĩa với mô tả hiện tại. Bạn hãy thử mô tả chi tiết hơn về nhân vật, bối cảnh, hoặc chuyển sang Tìm kiếm thông thường.
+          </template>
+          <template v-else>
+            Không có bộ truyện nào thỏa mãn các tiêu chí tìm kiếm hoặc bộ lọc hiện tại của bạn.
+          </template>
         </p>
-        <button
-          v-if="hasActiveFilters"
-          type="button"
-          class="btn-action-primary"
-          aria-label="Xóa tất cả bộ lọc để xem toàn bộ danh mục"
-          @click="resetAllFilters"
-        >
-          Xóa toàn bộ bộ lọc
-        </button>
+        <div class="empty-state-actions">
+          <button
+            v-if="hasActiveFilters"
+            type="button"
+            class="btn-action-primary"
+            aria-label="Xóa tất cả bộ lọc để xem toàn bộ danh mục"
+            @click="resetAllFilters"
+          >
+            Xóa toàn bộ bộ lọc
+          </button>
+          <button
+            v-if="searchMode === 'ai'"
+            type="button"
+            class="btn-action-secondary"
+            aria-label="Chuyển về tìm kiếm thông thường"
+            @click="switchSearchMode('normal')"
+          >
+            Chuyển về tìm kiếm thông thường
+          </button>
+        </div>
       </div>
 
       <!-- Comics Grid & Pagination -->
@@ -663,6 +706,7 @@ onUnmounted(() => {
             v-for="comic in comics"
             :key="comic.id"
             :comic="comic"
+            :search-mode="searchMode"
           />
         </div>
 
@@ -855,6 +899,59 @@ onUnmounted(() => {
 
 .btn-search-ai:hover {
   filter: brightness(1.1);
+}
+
+.ai-mode-hint-box {
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-md);
+  background-color: var(--color-primary-soft);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-xs);
+  color: var(--color-primary);
+  text-align: center;
+}
+
+.ai-hint-sparkle {
+  font-size: 14px;
+}
+
+.ai-hint-desc {
+  color: var(--color-text-secondary);
+}
+
+.empty-state-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  margin-top: var(--spacing-md);
+}
+
+.btn-action-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xs) var(--spacing-md);
+  background-color: var(--color-bg-elevated);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-action-secondary:hover {
+  background-color: var(--color-bg-card-hover);
+  border-color: var(--color-border-subtle);
+  color: var(--color-primary);
 }
 
 .ai-loading-indicator {

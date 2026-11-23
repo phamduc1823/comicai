@@ -16,9 +16,15 @@ use App\Policies\ConversationPolicy;
 use App\Policies\PostPolicy;
 use App\Policies\ReportPolicy;
 use App\Services\AiSearchService;
+use App\Services\ChapterUnlockService;
 use App\Services\Contracts\AiSearchServiceInterface;
+use App\Services\Contracts\ChapterUnlockServiceInterface;
+use App\Services\Contracts\EmbeddingServiceInterface;
+use App\Services\Contracts\WalletServiceInterface;
 use App\Services\FallbackSearchService;
+use App\Services\GeminiEmbeddingService;
 use App\Services\GeminiQueryUnderstandingService;
+use App\Services\WalletService;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
@@ -35,11 +41,30 @@ class AppServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(AiSearchServiceInterface::class, function ($app) {
-            return new AiSearchService($app->make(FallbackSearchService::class));
+            return new AiSearchService(
+                $app->make(FallbackSearchService::class),
+                $app->make(EmbeddingServiceInterface::class)
+            );
         });
 
         $this->app->singleton(GeminiQueryUnderstandingService::class, function () {
             return new GeminiQueryUnderstandingService();
+        });
+
+        $this->app->singleton(GeminiEmbeddingService::class, function () {
+            return new GeminiEmbeddingService();
+        });
+
+        $this->app->singleton(EmbeddingServiceInterface::class, function ($app) {
+            return $app->make(GeminiEmbeddingService::class);
+        });
+
+        $this->app->singleton(WalletServiceInterface::class, function () {
+            return new WalletService();
+        });
+
+        $this->app->singleton(ChapterUnlockServiceInterface::class, function ($app) {
+            return new ChapterUnlockService($app->make(WalletServiceInterface::class));
         });
     }
 

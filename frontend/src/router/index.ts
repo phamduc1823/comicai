@@ -82,6 +82,15 @@ const router = createRouter({
       },
     },
     {
+      path: '/wallet',
+      name: 'wallet',
+      component: () => import('@/pages/WalletPage.vue'),
+      meta: {
+        title: 'Ví Coin của tôi — BlueToon',
+        requiresAuth: true,
+      },
+    },
+    {
       path: '/login',
       name: 'login',
       component: () => import('@/pages/LoginPage.vue'),

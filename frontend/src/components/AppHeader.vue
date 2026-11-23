@@ -4,6 +4,7 @@ import { useRouter, RouterLink } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { useChatStore } from '@/stores/chat'
+import { useWalletStore } from '@/stores/wallet'
 import { useChatEcho } from '@/composables/useChatEcho'
 import { getErrorMessage } from '@/services/httpClient'
 
@@ -11,18 +12,22 @@ const router = useRouter()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 const chatStore = useChatStore()
+const walletStore = useWalletStore()
 
 // Subscribe user channel for real-time unread badge updates across entire app
 useChatEcho({
   userRef: toRef(authStore, 'user'),
 })
 
-// Fetch initial unread count when user becomes authenticated
+// Fetch initial unread count & wallet when user becomes authenticated
 watch(
   () => authStore.isAuthenticated,
   (isAuth) => {
     if (isAuth) {
       chatStore.fetchUnreadCount()
+      walletStore.fetchWallet(true)
+    } else {
+      walletStore.reset()
     }
   },
   { immediate: true }
@@ -56,6 +61,7 @@ async function handleLogout() {
 
   try {
     await authStore.logout()
+    walletStore.reset()
     await router.push('/')
   } catch (err: unknown) {
     // On failure, preserve authenticated state and display error
@@ -133,6 +139,23 @@ async function handleLogout() {
 
         <!-- Authenticated User -->
         <div v-else class="auth-user-menu">
+          <!-- Coin Wallet Badge Shortcut -->
+          <RouterLink
+            to="/wallet"
+            class="btn-wallet-badge"
+            title="Ví Coin của bạn — Nhấn để xem lịch sử và nhận Coin miễn phí"
+          >
+            <span class="coin-icon" aria-hidden="true">🪙</span>
+            <span class="coin-balance">{{ walletStore.formattedBalance }}</span>
+            <span class="coin-label">Coin</span>
+            <span
+              v-if="walletStore.canClaimFaucet"
+              class="faucet-indicator-dot"
+              title="Có lượt nhận Coin miễn phí hôm nay!"
+              aria-label="Có lượt nhận Coin miễn phí hôm nay"
+            ></span>
+          </RouterLink>
+
           <div class="user-profile-badge">
             <div class="user-avatar" aria-hidden="true">
               <img
@@ -466,6 +489,51 @@ async function handleLogout() {
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
   transition: all var(--transition-fast);
+}
+
+.btn-wallet-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  background-color: rgba(234, 179, 8, 0.08);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  border-radius: var(--radius-full);
+  color: #eab308;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-decoration: none;
+  position: relative;
+  transition: all var(--transition-fast);
+}
+
+.btn-wallet-badge:hover {
+  background-color: rgba(234, 179, 8, 0.16);
+  border-color: #eab308;
+  transform: translateY(-1px);
+}
+
+.coin-icon {
+  font-size: 14px;
+}
+
+.coin-balance {
+  font-weight: 700;
+  color: #eab308;
+}
+
+.coin-label {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.faucet-indicator-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #22c55e;
+  box-shadow: 0 0 6px #22c55e;
 }
 
 .btn-logout:hover:not(:disabled) {

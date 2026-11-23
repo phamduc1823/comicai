@@ -20,6 +20,8 @@ class CreatorChapterResource extends JsonResource
             'chapter_number' => (string) $this->chapter_number,
             'title' => $this->title,
             'slug' => $this->slug,
+            'is_vip' => (bool) $this->is_vip,
+            'price' => (int) ($this->price ?? 0),
             'status' => $this->status,
             'rejection_reason' => $this->rejection_reason,
             'views_count' => (int) $this->views_count,

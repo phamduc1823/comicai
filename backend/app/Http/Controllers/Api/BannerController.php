@@ -6,26 +6,44 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\BannerResource;
 use App\Models\Banner;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\Cache;
 
 class BannerController extends Controller
 {
     /**
      * Display a listing of active banners for approved comics.
      * Prevents N+1 query and leaks of unapproved comics or sensitive fields.
+     * Caches result with safe fallback and Model Event invalidation.
      */
     public function index(): AnonymousResourceCollection
     {
-        $banners = Banner::query()
-            ->where('is_active', true)
-            ->whereHas('comic', function ($query) {
-                $query->where('approval_status', 'approved');
-            })
-            ->with(['comic' => function ($query) {
-                $query->select(['id', 'title', 'slug', 'cover_path', 'approval_status']);
-            }])
-            ->orderBy('sort_order', 'asc')
-            ->orderBy('id', 'asc')
-            ->get();
+        try {
+            $banners = Cache::remember(Banner::CACHE_KEY, Banner::CACHE_TTL, function () {
+                return Banner::query()
+                    ->where('is_active', true)
+                    ->whereHas('comic', function ($query) {
+                        $query->where('approval_status', 'approved');
+                    })
+                    ->with(['comic' => function ($query) {
+                        $query->select(['id', 'title', 'slug', 'cover_path', 'approval_status']);
+                    }])
+                    ->orderBy('sort_order', 'asc')
+                    ->orderBy('id', 'asc')
+                    ->get();
+            });
+        } catch (\Throwable) {
+            $banners = Banner::query()
+                ->where('is_active', true)
+                ->whereHas('comic', function ($query) {
+                    $query->where('approval_status', 'approved');
+                })
+                ->with(['comic' => function ($query) {
+                    $query->select(['id', 'title', 'slug', 'cover_path', 'approval_status']);
+                }])
+                ->orderBy('sort_order', 'asc')
+                ->orderBy('id', 'asc')
+                ->get();
+        }
 
         return BannerResource::collection($banners);
     }
