@@ -273,11 +273,13 @@ class FallbackSearchService implements AiSearchServiceInterface
                 'title' => $comic->title,
                 'slug' => $comic->slug,
                 'cover_path' => $comic->cover_path,
+                'cover_url' => $comic->cover_path ? \Illuminate\Support\Facades\Storage::disk('public')->url($comic->cover_path) : null,
                 'author_name' => $comic->author_name,
                 'age_rating' => $comic->age_rating,
                 'status' => $comic->status,
                 'score' => $finalScore,
                 'is_fallback' => true,
+                'match_type' => 'clue',
                 'match_reason' => $reasonText,
                 'matched_tags' => $matchedTags,
                 'matched_genres' => $matchedGenres,
@@ -312,9 +314,10 @@ class FallbackSearchService implements AiSearchServiceInterface
      * @param array<string, mixed> $clues Structured clues from query understanding
      * @param array<string, mixed> $filters Optional pre-filters
      * @param int $limit Maximum number of results to return
+     * @param string|null $rawQuery Optional raw query string
      * @return array<int, array<string, mixed>> Standardized list of search results
      */
-    public function searchWithClues(array $clues, array $filters = [], int $limit = 15): array
+    public function searchWithClues(array $clues, array $filters = [], int $limit = 15, ?string $rawQuery = null): array
     {
         $series = isset($clues['series']) && is_string($clues['series']) ? trim($clues['series']) : null;
         $characters = is_array($clues['characters'] ?? null) ? array_filter($clues['characters']) : [];
@@ -528,11 +531,13 @@ class FallbackSearchService implements AiSearchServiceInterface
                 'title' => $comic->title,
                 'slug' => $comic->slug,
                 'cover_path' => $comic->cover_path,
+                'cover_url' => $comic->cover_path ? \Illuminate\Support\Facades\Storage::disk('public')->url($comic->cover_path) : null,
                 'author_name' => $comic->author_name,
                 'age_rating' => $comic->age_rating,
                 'status' => $comic->status,
                 'score' => $finalScore,
                 'is_fallback' => false,
+                'match_type' => 'clue',
                 'match_reason' => $reasonText,
                 'matched_tags' => $matchedTags,
                 'matched_genres' => $matchedGenres,
@@ -555,6 +560,24 @@ class FallbackSearchService implements AiSearchServiceInterface
             unset($item['views_count']);
             return $item;
         }, array_slice($scoredResults, 0, $limit));
+    }
+
+    /**
+     * Search comics using hybrid fallback: uses searchWithClues if clues are given, else plain search.
+     *
+     * @param string $query Natural language search query
+     * @param array<string, mixed> $filters Optional pre-filters
+     * @param int $limit Maximum number of results to return
+     * @param array<string, mixed>|null $clues Optional structured clues
+     * @return array<int, array<string, mixed>> Standardized list of search results
+     */
+    public function searchHybrid(string $query, array $filters = [], int $limit = 15, ?array $clues = null): array
+    {
+        if (! empty($clues)) {
+            return $this->searchWithClues($clues, $filters, $limit, $query);
+        }
+
+        return $this->search($query, $filters, $limit);
     }
 
     /**

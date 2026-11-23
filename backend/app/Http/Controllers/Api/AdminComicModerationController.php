@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\RejectComicChangesRequest;
 use App\Http\Requests\RejectComicRequest;
 use App\Http\Resources\AdminModerationComicResource;
+use App\Jobs\GenerateComicEmbeddingJob;
 use App\Models\Comic;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
@@ -109,6 +110,11 @@ class AdminComicModerationController extends Controller
             $locked->save();
 
             $updatedComic = $locked;
+
+            $approvedComicId = (int) $locked->id;
+            DB::afterCommit(function () use ($approvedComicId) {
+                GenerateComicEmbeddingJob::dispatch($approvedComicId);
+            });
         });
 
         if ($statusError !== null) {
@@ -267,6 +273,11 @@ class AdminComicModerationController extends Controller
             $locked->save();
 
             $updatedComic = $locked;
+
+            $approvedComicId = (int) $locked->id;
+            DB::afterCommit(function () use ($approvedComicId) {
+                GenerateComicEmbeddingJob::dispatch($approvedComicId);
+            });
         });
 
         if ($statusError !== null) {
