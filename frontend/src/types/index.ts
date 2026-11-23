@@ -28,6 +28,7 @@ export * from './admin'
 export * from './userLibrary'
 export * from './readingHistory'
 export * from './chat'
+export * from './wallet'
 export type {
   Post,
   PostAuthor,

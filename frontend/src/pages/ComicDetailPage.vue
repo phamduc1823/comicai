@@ -968,6 +968,13 @@ onUnmounted(() => {
                     Chương {{ formatChapterNumber(chap.chapter_number) }}
                   </span>
                   <span
+                    v-if="chap.is_vip"
+                    class="badge-vip"
+                    :title="'Chương VIP: ' + (chap.price || 0) + ' Coin'"
+                  >
+                    👑 VIP ({{ chap.price || 0 }}C)
+                  </span>
+                  <span
                     v-if="lastReadChapter && lastReadChapter.id === chap.id"
                     class="badge-last-read"
                     title="Chương bạn vừa đọc gần nhất"
@@ -2055,6 +2062,18 @@ onUnmounted(() => {
   border-color: var(--color-primary);
   background-color: rgba(99, 102, 241, 0.08);
   box-shadow: 0 0 10px rgba(99, 102, 241, 0.15);
+}
+
+.badge-vip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: 700;
+  background-color: rgba(234, 179, 8, 0.16);
+  color: #eab308;
+  border: 1px solid rgba(234, 179, 8, 0.35);
 }
 
 .badge-last-read {

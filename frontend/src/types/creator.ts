@@ -138,6 +138,8 @@ export interface CreatorChapter {
   chapter_number: string
   title: string | null
   slug: string
+  is_vip?: boolean
+  price?: number
   status: ChapterStatus
   rejection_reason: string | null
   views_count: number
@@ -168,6 +170,8 @@ export interface ListCreatorChaptersParams {
 export interface CreateChapterPayload {
   chapter_number: number | string
   title?: string | null
+  is_vip?: boolean
+  price?: number
 }
 
 /**
@@ -176,6 +180,8 @@ export interface CreateChapterPayload {
 export interface UpdateChapterPayload {
   chapter_number?: number | string
   title?: string | null
+  is_vip?: boolean
+  price?: number
 }
 
 /**
