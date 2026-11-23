@@ -1,0 +1,227 @@
+# ==============================================================================
+# ComicAI — Docker Compose Configuration (7 Services)
+# Services: MySQL, Redis, Backend, Queue Worker, Reverb WebSocket, Frontend, Nginx Gateway
+# ==============================================================================
+
+name: comicai
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. Primary Relational Database: MySQL 8.4 LTS
+  # ----------------------------------------------------------------------------
+  mysql:
+    image: mysql:8.4
+    container_name: comicai_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root_secret_change_me}
+      MYSQL_DATABASE: ${DB_DATABASE:-comicai}
+      MYSQL_USER: ${DB_USERNAME:-comicai_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-comicai_secret_change_me}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - comicai_network
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=caching_sha2_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-root_secret_change_me}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ----------------------------------------------------------------------------
+  # 2. In-Memory Cache, Session & Queue Broker: Redis 7
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: comicai_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-redis_secret_change_me}"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - comicai_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_secret_change_me}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # ----------------------------------------------------------------------------
+  # 3. Core REST API: Laravel 11 PHP-FPM
+  # ----------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        APP_ENV: ${APP_ENV:-production}
+    container_name: comicai_backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      APP_NAME: ${APP_NAME:-ComicAI}
+      APP_ENV: ${APP_ENV:-production}
+      APP_KEY: ${APP_KEY}
+      APP_DEBUG: ${APP_DEBUG:-false}
+      APP_URL: ${APP_URL:-http://localhost}
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: ${DB_DATABASE:-comicai}
+      DB_USERNAME: ${DB_USERNAME:-comicai_user}
+      DB_PASSWORD: ${DB_PASSWORD:-comicai_secret_change_me}
+      CACHE_STORE: redis
+      SESSION_DRIVER: redis
+      QUEUE_CONNECTION: redis
+      REDIS_CLIENT: phpredis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_secret_change_me}
+      REVERB_APP_ID: ${REVERB_APP_ID:-comicai_app}
+      REVERB_APP_KEY: ${REVERB_APP_KEY:-comicai_key}
+      REVERB_APP_SECRET: ${REVERB_APP_SECRET:-reverb_secret_change_me}
+      REVERB_HOST: "0.0.0.0"
+      REVERB_PORT: 8080
+      REVERB_SCHEME: http
+      AI_SEARCH_ENABLED: ${AI_SEARCH_ENABLED:-false}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    volumes:
+      - storage_data:/var/www/html/storage/app/public
+    networks:
+      - comicai_network
+
+  # ----------------------------------------------------------------------------
+  # 4. Asynchronous Queue Worker: Background Jobs & Vector Embeddings
+  # ----------------------------------------------------------------------------
+  queue-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        APP_ENV: ${APP_ENV:-production}
+    container_name: comicai_queue_worker
+    restart: unless-stopped
+    command: ["php", "artisan", "queue:work", "--tries=3", "--timeout=60", "--sleep=3"]
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      APP_KEY: ${APP_KEY}
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: ${DB_DATABASE:-comicai}
+      DB_USERNAME: ${DB_USERNAME:-comicai_user}
+      DB_PASSWORD: ${DB_PASSWORD:-comicai_secret_change_me}
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_secret_change_me}
+      AI_SEARCH_ENABLED: ${AI_SEARCH_ENABLED:-false}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    volumes:
+      - storage_data:/var/www/html/storage/app/public
+    networks:
+      - comicai_network
+
+  # ----------------------------------------------------------------------------
+  # 5. Realtime WebSocket Daemon: Laravel Reverb
+  # ----------------------------------------------------------------------------
+  reverb:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        APP_ENV: ${APP_ENV:-production}
+    container_name: comicai_reverb
+    restart: unless-stopped
+    command: ["php", "artisan", "reverb:start", "--host=0.0.0.0", "--port=8080"]
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      APP_KEY: ${APP_KEY}
+      REVERB_APP_ID: ${REVERB_APP_ID:-comicai_app}
+      REVERB_APP_KEY: ${REVERB_APP_KEY:-comicai_key}
+      REVERB_APP_SECRET: ${REVERB_APP_SECRET:-reverb_secret_change_me}
+      REVERB_HOST: "0.0.0.0"
+      REVERB_PORT: 8080
+      REVERB_SCHEME: http
+      CACHE_STORE: redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_secret_change_me}
+    networks:
+      - comicai_network
+
+  # ----------------------------------------------------------------------------
+  # 6. Frontend SPA Container: Vue 3 + TypeScript
+  # ----------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+        VITE_REVERB_APP_KEY: ${REVERB_APP_KEY:-comicai_key}
+        VITE_REVERB_HOST: ${REVERB_HOST:-localhost}
+        VITE_REVERB_PORT: ${REVERB_CLIENT_PORT:-80}
+        VITE_REVERB_SCHEME: ${REVERB_CLIENT_SCHEME:-http}
+    container_name: comicai_frontend
+    restart: unless-stopped
+    networks:
+      - comicai_network
+
+  # ----------------------------------------------------------------------------
+  # 7. Gateway Web Server: Nginx Reverse Proxy
+  # ----------------------------------------------------------------------------
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: comicai_gateway
+    restart: unless-stopped
+    ports:
+      - "${PORT:-80}:80"
+    volumes:
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - storage_data:/var/www/html/storage/app/public:ro
+    depends_on:
+      - frontend
+      - backend
+      - reverb
+    networks:
+      - comicai_network
+
+# ------------------------------------------------------------------------------
+# Persistent Storage Volumes & Networks
+# ------------------------------------------------------------------------------
+volumes:
+  mysql_data:
+    name: comicai_mysql_data
+  redis_data:
+    name: comicai_redis_data
+  storage_data:
+    name: comicai_storage_data
+
+networks:
+  comicai_network:
+    name: comicai_network
+    driver: bridge

@@ -47,8 +47,14 @@ async function waitForPort(port, maxWaitMs = 15000) {
 
 /**
  * Ensure both Laravel API (8000) and Vite frontend (5173) are running.
+ * Skips spawning if E2E_SKIP_SPAWN is enabled (e.g. running against staging Docker).
  */
 export async function startServers() {
+  if (process.env.E2E_SKIP_SPAWN === 'true') {
+    console.log('[Setup] E2E_SKIP_SPAWN=true: Target server is managed externally (staging/docker).');
+    return;
+  }
+
   const isBackendUp = await isPortOpen(8000);
   if (!isBackendUp) {
     backendProcess = spawn('php', ['artisan', 'serve', '--host=127.0.0.1', '--port=8000'], {

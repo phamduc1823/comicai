@@ -7,8 +7,8 @@ import {
   cleanupTestUsers,
 } from './test-setup.mjs';
 
-const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-const BASE_URL = 'http://127.0.0.1:5173';
+const CHROME_PATH = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+const BASE_URL = process.env.E2E_BASE_URL || 'http://127.0.0.1:5173';
 
 // Test execution results
 const testResults = [];
