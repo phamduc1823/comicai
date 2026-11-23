@@ -57,6 +57,8 @@ class UpdateCreatorChapterRequest extends FormRequest
                 Rule::unique('chapters', 'chapter_number')->where('comic_id', $comicId)->ignore($chapterId),
             ],
             'title' => ['nullable', 'string', 'max:150'],
+            'is_vip' => ['sometimes', 'boolean'],
+            'price' => ['sometimes', 'nullable', 'integer', 'min:' . config('vip.price_min', 5), 'max:' . config('vip.price_max', 50)],
         ];
     }
 

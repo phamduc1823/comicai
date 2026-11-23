@@ -73,6 +73,10 @@ class CreatorChapterController extends Controller
         $chapter->status = 'draft';
         $chapter->rejection_reason = null;
         $chapter->views_count = 0;
+        $chapter->is_vip = (bool) ($validated['is_vip'] ?? false);
+        $chapter->price = $chapter->is_vip
+            ? (int) ($validated['price'] ?? config('vip.default_price', 10))
+            : 0;
         $chapter->save();
 
         $chapter->load(['comic:id,title,slug,user_id', 'images']);
@@ -161,6 +165,18 @@ class CreatorChapterController extends Controller
 
             if (array_key_exists('title', $validated)) {
                 $locked->title = $validated['title'];
+            }
+
+            if (array_key_exists('is_vip', $validated)) {
+                $locked->is_vip = (bool) $validated['is_vip'];
+            }
+
+            if (array_key_exists('price', $validated)) {
+                $locked->price = $locked->is_vip ? (int) $validated['price'] : 0;
+            } elseif ($locked->is_vip && (int) $locked->price === 0) {
+                $locked->price = (int) config('vip.default_price', 10);
+            } elseif (! $locked->is_vip) {
+                $locked->price = 0;
             }
 
             $numClean = rtrim(rtrim($canonicalNumber, '0'), '.');

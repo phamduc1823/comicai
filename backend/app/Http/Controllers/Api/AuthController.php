@@ -29,8 +29,13 @@ class AuthController extends Controller
             'password' => $validated['password'],
         ]);
 
+        app(\App\Services\Contracts\WalletServiceInterface::class)->getOrCreateWallet($user);
+
         Auth::guard('web')->login($user);
-        $request->session()->regenerate();
+
+        if ($request->hasSession()) {
+            $request->session()->regenerate();
+        }
 
         return response()->json([
             'status' => 'success',

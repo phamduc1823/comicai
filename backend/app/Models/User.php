@@ -186,4 +186,28 @@ class User extends Authenticatable
     {
         return $this->hasMany(Message::class, 'sender_id');
     }
+
+    /**
+     * User's coin wallet.
+     */
+    public function wallet(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(Wallet::class, 'user_id');
+    }
+
+    /**
+     * User's coin transaction history ledger.
+     */
+    public function coinTransactions(): HasMany
+    {
+        return $this->hasMany(CoinTransaction::class, 'user_id');
+    }
+
+    /**
+     * VIP chapters unlocked by this user.
+     */
+    public function chapterUnlocks(): HasMany
+    {
+        return $this->hasMany(ChapterUnlock::class, 'user_id');
+    }
 }

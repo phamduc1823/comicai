@@ -20,6 +20,8 @@ class ChapterSummaryResource extends JsonResource
             'chapter_number' => (string) $this->chapter_number,
             'title' => $this->title,
             'slug' => $this->slug,
+            'is_vip' => (bool) $this->is_vip,
+            'price' => (int) ($this->price ?? 0),
             'views_count' => (int) $this->views_count,
             'created_at' => $this->created_at?->toISOString(),
         ];
