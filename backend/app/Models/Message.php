@@ -26,6 +26,22 @@ class Message extends Model
     ];
 
     /**
+     * The attributes that should be visible in serialization.
+     * Strictly whitelists the public chat communication fields.
+     *
+     * @var list<string>
+     */
+    protected $visible = [
+        'id',
+        'conversation_id',
+        'sender_id',
+        'type',
+        'body',
+        'client_message_id',
+        'created_at',
+    ];
+
+    /**
      * Conversation this message belongs to.
      */
     public function conversation(): BelongsTo

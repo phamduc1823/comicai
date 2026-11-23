@@ -44,16 +44,17 @@ class MessagesRead implements ShouldBroadcast
 
     /**
      * Get the data to broadcast.
+     * Strictly whitelists only the read receipt attributes required by frontend.
      *
      * @return array<string, mixed>
      */
     public function broadcastWith(): array
     {
         return [
-            'conversation_id' => $this->conversationId,
-            'user_id' => $this->userId,
-            'last_read_message_id' => $this->lastReadMessageId,
-            'last_read_at' => $this->lastReadAt,
+            'conversation_id' => (int) $this->conversationId,
+            'user_id' => (int) $this->userId,
+            'last_read_message_id' => (int) $this->lastReadMessageId,
+            'last_read_at' => $this->lastReadAt ? (string) $this->lastReadAt : null,
         ];
     }
 }

@@ -39,7 +39,6 @@ class ConversationService
                 $q->where('user_id', $user->id);
             })
             ->with([
-                'users:id,name,avatar_path,role',
                 'participants.user:id,name,avatar_path,role',
                 'lastMessage',
             ])
@@ -81,7 +80,6 @@ class ConversationService
             ->where('user_one_id', $userOneId)
             ->where('user_two_id', $userTwoId)
             ->with([
-                'users:id,name,avatar_path,role',
                 'participants.user:id,name,avatar_path,role',
                 'lastMessage',
             ])

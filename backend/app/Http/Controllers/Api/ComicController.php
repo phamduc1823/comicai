@@ -22,6 +22,23 @@ class ComicController extends Controller
         $perPage = (int) ($validated['per_page'] ?? 15);
 
         $query = Comic::query()
+            ->select([
+                'id',
+                'title',
+                'slug',
+                'alternative_titles',
+                'author_name',
+                'user_id',
+                'cover_path',
+                'age_rating',
+                'status',
+                'views_count',
+                'follows_count',
+                'is_featured',
+                'approval_status',
+                'created_at',
+                'updated_at',
+            ])
             ->where('approval_status', 'approved')
             ->withCount([
                 'chapters as published_chapters_count' => function ($q) {

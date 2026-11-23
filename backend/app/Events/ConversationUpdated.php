@@ -16,13 +16,16 @@ class ConversationUpdated implements ShouldBroadcast
 
     /**
      * Create a new event instance.
+     * Strips loaded relations from message to ensure minimal broadcast payload.
      */
     public function __construct(
         public int $conversationId,
         public int $recipientId,
         public Message $message,
         public int $unreadCount
-    ) {}
+    ) {
+        $this->message = $message->withoutRelations();
+    }
 
     /**
      * Get the channels the event should broadcast on.
@@ -46,15 +49,24 @@ class ConversationUpdated implements ShouldBroadcast
 
     /**
      * Get the data to broadcast.
+     * Strictly whitelists only the conversation update attributes required by frontend.
      *
      * @return array<string, mixed>
      */
     public function broadcastWith(): array
     {
         return [
-            'conversation_id' => $this->conversationId,
-            'last_message' => (new MessageResource($this->message))->resolve(),
-            'unread_count' => $this->unreadCount,
+            'conversation_id' => (int) $this->conversationId,
+            'last_message' => [
+                'id' => (int) $this->message->id,
+                'conversation_id' => (int) $this->message->conversation_id,
+                'sender_id' => (int) $this->message->sender_id,
+                'type' => (string) $this->message->type,
+                'body' => (string) $this->message->body,
+                'client_message_id' => $this->message->client_message_id ? (string) $this->message->client_message_id : null,
+                'created_at' => $this->message->created_at?->toISOString(),
+            ],
+            'unread_count' => (int) $this->unreadCount,
         ];
     }
 }
