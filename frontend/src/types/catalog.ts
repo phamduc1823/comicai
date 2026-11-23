@@ -44,6 +44,14 @@ export interface ComicListItem {
   creator: CreatorSummary | null
   created_at: string | null
   updated_at: string | null
+  // AI Search optional metadata (Package 10.4C/D)
+  score?: number
+  is_fallback?: boolean
+  match_type?: 'semantic' | 'clue' | 'hybrid' | null
+  match_reason?: string
+  matched_tags?: string[]
+  matched_genres?: string[]
+  ai_summary?: string | null
 }
 
 export interface ComicDetail extends ComicListItem {
@@ -80,6 +88,8 @@ export interface ChapterSummary {
   chapter_number: string
   title: string | null
   slug: string
+  is_vip?: boolean
+  price?: number
   views_count: number
   created_at: string | null
 }
@@ -111,12 +121,17 @@ export interface ChapterReader {
   chapter_number: string
   title: string | null
   slug: string
+  is_vip?: boolean
+  is_unlocked?: boolean
+  price?: number
   views_count: number
   comic: ReaderComicSummary
   images: ChapterImage[]
   prev_chapter: ChapterNavigation | null
   next_chapter: ChapterNavigation | null
   created_at: string | null
+  user_balance?: number
+  bypass_reason?: string
 }
 
 export type ComicSortOption = 'latest' | 'views' | 'follows'

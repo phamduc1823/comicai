@@ -5,9 +5,13 @@ import type { ComicListItem } from '@/types/catalog'
 
 interface Props {
   comic: ComicListItem
+  searchMode?: 'normal' | 'ai'
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  searchMode: 'normal',
+})
+
 const imageError = ref(false)
 
 const statusInfo = computed(() => {
@@ -23,7 +27,7 @@ const statusInfo = computed(() => {
 })
 
 const chaptersLabel = computed(() => {
-  const count = props.comic.published_chapters_count
+  const count = props.comic.published_chapters_count ?? 0
   if (count > 0) {
     return `${count} chương`
   }
@@ -37,11 +41,83 @@ const formattedViews = computed(() => {
   if (views >= 1000) return (views / 1000).toFixed(1) + 'k'
   return views.toString()
 })
+
+/**
+ * AI Relevance Indicators & Badges (Package 10.4D)
+ */
+const isAiMode = computed(() => props.searchMode === 'ai')
+
+const hasValidScore = computed(() => {
+  return (
+    isAiMode.value &&
+    props.comic.is_fallback !== true &&
+    typeof props.comic.score === 'number' &&
+    props.comic.score > 0
+  )
+})
+
+const matchPercentage = computed(() => {
+  if (typeof props.comic.score !== 'number') return null
+  return Math.round(props.comic.score * 100)
+})
+
+const badgeConfig = computed(() => {
+  if (!hasValidScore.value || matchPercentage.value === null) return null
+
+  const type = props.comic.match_type
+
+  if (type === 'clue') {
+    return {
+      className: 'badge-clue',
+      icon: '🎯',
+      label: `Điểm phù hợp ${matchPercentage.value}%`,
+      title: `Điểm phù hợp từ khóa/manh mối: ${matchPercentage.value}%`,
+    }
+  }
+
+  if (type === 'hybrid') {
+    return {
+      className: 'badge-hybrid',
+      icon: '✨',
+      label: `Điểm phù hợp ${matchPercentage.value}%`,
+      title: `Điểm phù hợp xếp hạng AI kết hợp: ${matchPercentage.value}%`,
+    }
+  }
+
+  if (type === 'semantic') {
+    return {
+      className: 'badge-semantic',
+      icon: '✨',
+      label: `Điểm phù hợp ${matchPercentage.value}%`,
+      title: `Điểm phù hợp ngữ nghĩa AI: ${matchPercentage.value}%`,
+    }
+  }
+
+  // Fallback when match_type is missing/null/undefined:
+  // Neutral badge class and tooltip, not asserting semantic/clue/hybrid!
+  return {
+    className: 'badge-neutral',
+    icon: '✨',
+    label: `Điểm phù hợp ${matchPercentage.value}%`,
+    title: `Điểm xếp hạng tìm kiếm AI: ${matchPercentage.value}%`,
+  }
+})
+
+const coverSrc = computed(() => {
+  if (props.comic.cover_url) return props.comic.cover_url
+  if (props.comic.cover_path) {
+    if (props.comic.cover_path.startsWith('http://') || props.comic.cover_path.startsWith('https://')) {
+      return props.comic.cover_path
+    }
+    return `/storage/${props.comic.cover_path}`
+  }
+  return ''
+})
 </script>
 
 <template>
   <!-- Destination route /comics/:slug dependency on CAI-019 -->
-  <article class="comic-card">
+  <article class="comic-card" :class="{ 'card-ai-matched': Boolean(badgeConfig) }">
     <RouterLink
       :to="'/comics/' + comic.slug"
       class="comic-card-link"
@@ -50,8 +126,8 @@ const formattedViews = computed(() => {
       <!-- Cover Image with Fallback -->
       <div class="cover-wrapper">
         <img
-          v-if="comic.cover_url && !imageError"
-          :src="comic.cover_url"
+          v-if="coverSrc && !imageError"
+          :src="coverSrc"
           :alt="'Bìa truyện ' + comic.title"
           class="comic-cover"
           loading="lazy"
@@ -68,13 +144,29 @@ const formattedViews = computed(() => {
           {{ statusInfo.label }}
         </span>
 
+        <!-- AI Relevance Score Badge -->
+        <span
+          v-if="badgeConfig"
+          class="badge-ai-match"
+          :class="badgeConfig.className"
+          :title="badgeConfig.title"
+        >
+          <span class="badge-ai-sparkle" aria-hidden="true">{{ badgeConfig.icon }}</span>
+          <span>{{ badgeConfig.label }}</span>
+        </span>
+
         <!-- Published Chapters Count Badge -->
         <span class="badge-chapters">
           {{ chaptersLabel }}
         </span>
 
         <!-- Featured Badge -->
-        <span v-if="comic.is_featured" class="badge-featured" title="Truyện nổi bật">
+        <span
+          v-if="comic.is_featured"
+          class="badge-featured"
+          :class="{ 'badge-featured-offset': Boolean(badgeConfig) }"
+          title="Truyện nổi bật"
+        >
           ★ Hot
         </span>
       </div>
@@ -84,6 +176,16 @@ const formattedViews = computed(() => {
         <h3 class="comic-title" :title="comic.title">
           {{ comic.title }}
         </h3>
+
+        <!-- AI Search Match Reason Snippet -->
+        <div
+          v-if="isAiMode && comic.match_reason"
+          class="comic-match-reason"
+          :title="comic.match_reason"
+        >
+          <span class="reason-icon" aria-hidden="true">💡</span>
+          <span class="reason-text">{{ comic.match_reason }}</span>
+        </div>
 
         <p v-if="comic.author_name" class="comic-author">
           <span class="author-icon" aria-hidden="true">✍</span>
@@ -263,6 +365,95 @@ const formattedViews = computed(() => {
   color: #ffffff;
   z-index: 2;
   box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+  transition: top var(--transition-fast);
+}
+
+.badge-featured-offset {
+  top: calc(var(--spacing-xs) + 24px);
+}
+
+/* AI Match Badges (Package 10.4D) */
+.badge-ai-match {
+  position: absolute;
+  top: var(--spacing-xs);
+  right: var(--spacing-xs);
+  padding: 2px 7px;
+  border-radius: var(--radius-xs);
+  font-size: 10px;
+  font-weight: var(--font-weight-bold);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  z-index: 2;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(6px);
+  user-select: none;
+}
+
+.badge-semantic {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.95), rgba(14, 165, 233, 0.95));
+  color: #0b0f19;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 0 10px var(--color-primary-glow);
+}
+
+.badge-hybrid {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.95), rgba(20, 184, 166, 0.95));
+  color: #0b0f19;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 0 10px rgba(14, 165, 233, 0.35);
+}
+
+.badge-clue {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.95), rgba(5, 150, 105, 0.95));
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.35);
+}
+
+.badge-neutral {
+  background: linear-gradient(135deg, rgba(51, 65, 85, 0.95), rgba(30, 41, 59, 0.95));
+  color: #f1f5f9;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.35);
+}
+
+.badge-ai-sparkle {
+  font-size: 10px;
+}
+
+.card-ai-matched {
+  border-color: rgba(56, 189, 248, 0.35);
+}
+
+.card-ai-matched:hover {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 20px var(--color-primary-glow);
+}
+
+.comic-match-reason {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  background-color: var(--color-primary-soft);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  color: var(--color-primary);
+  margin-top: 2px;
+  overflow: hidden;
+}
+
+.reason-icon {
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.reason-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Info Section */

@@ -9,6 +9,8 @@
     "preview": "vite preview",
     "type-check": "vue-tsc -b --noEmit",
     "test:chat": "node tests/unit-chat-echo.mjs && node tests/unit-chat-ui.mjs",
+    "test:ai-search": "node tests/unit-ai-search-ui.mjs",
+    "test:wallet": "node tests/unit-wallet.mjs",
     "test:chat:browser": "node tests/e2e/chat-browser-mock.mjs",
     "test:e2e": "node tests/e2e/auth.spec.mjs"
   },
