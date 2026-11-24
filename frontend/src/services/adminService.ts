@@ -12,6 +12,13 @@ import type {
   AdminBanner,
   ReorderBannersPayload,
 } from '@/types/admin'
+import type {
+  Report,
+  UpdateReportPayload,
+  ListReportsParams,
+  ReportActionResponse,
+} from '@/types/report'
+import { ReportService } from './reportService'
 
 export class AdminService {
   /**
@@ -228,4 +235,30 @@ export class AdminService {
     return response.data
   }
 
+  /**
+   * Fetch paginated list of violation reports for moderation.
+   * GET /api/admin/reports
+   */
+  static async getReports(params?: ListReportsParams): Promise<PaginatedResponse<Report>> {
+    return ReportService.getReports(params)
+  }
+
+  /**
+   * Fetch single violation report details.
+   * GET /api/admin/reports/{id}
+   */
+  static async getReport(id: number | string): Promise<{ status: string; data: Report }> {
+    return ReportService.getReport(id)
+  }
+
+  /**
+   * Resolve or dismiss a violation report.
+   * PATCH /api/admin/reports/{id}
+   */
+  static async updateReport(
+    id: number | string,
+    payload: UpdateReportPayload
+  ): Promise<ReportActionResponse> {
+    return ReportService.updateReport(id, payload)
+  }
 }

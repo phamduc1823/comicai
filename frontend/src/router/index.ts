@@ -200,6 +200,16 @@ const router = createRouter({
         roles: ['admin'],
       },
     },
+    {
+      path: '/admin/reports',
+      name: 'admin-reports',
+      component: () => import('@/pages/admin/AdminReportsPage.vue'),
+      meta: {
+        title: 'Quản lý Báo cáo vi phạm — BlueToon Admin',
+        requiresAuth: true,
+        roles: ['admin'],
+      },
+    },
   ],
 })
 

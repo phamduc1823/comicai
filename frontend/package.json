@@ -12,6 +12,7 @@
     "test:ai-search": "node tests/unit-ai-search-ui.mjs",
     "test:wallet": "node tests/unit-wallet.mjs",
     "test:admin-banners": "node tests/unit-admin-banners.mjs",
+    "test:reports": "node tests/unit-reports.mjs",
     "test:chat:browser": "node tests/e2e/chat-browser-mock.mjs",
     "test:e2e": "node tests/e2e/auth.spec.mjs"
   },

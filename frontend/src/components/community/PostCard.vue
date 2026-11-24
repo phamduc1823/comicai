@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth'
 import { CommunityService } from '@/services/communityService'
 import { getErrorMessage } from '@/services/httpClient'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
+import ReportModal from '@/components/common/ReportModal.vue'
 
 const props = defineProps<{
   post: Post
@@ -28,6 +29,7 @@ const isDeleting = ref(false)
 const deleteError = ref<string | null>(null)
 const isImagePreviewOpen = ref(false)
 const lightboxCloseBtnRef = ref<HTMLButtonElement | null>(null)
+const isReportModalOpen = ref(false)
 
 // Permissions
 const isAuthor = computed(() => {
@@ -188,8 +190,8 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Action buttons for Author / Admin -->
-      <div v-if="isAuthor || canDelete" class="post-actions-menu">
+      <!-- Action buttons for Author / Admin / Report -->
+      <div class="post-actions-menu">
         <button
           v-if="isAuthor"
           type="button"
@@ -209,6 +211,16 @@ onUnmounted(() => {
           @click="openDeleteModal"
         >
           🗑️ <span class="action-text">Xóa</span>
+        </button>
+        <button
+          v-if="!isAuthor"
+          type="button"
+          class="btn-action btn-report"
+          title="Báo cáo bài đăng vi phạm"
+          aria-label="Báo cáo bài đăng vi phạm"
+          @click="isReportModalOpen = true"
+        >
+          🚩 <span class="action-text">Báo cáo</span>
         </button>
       </div>
     </header>
@@ -315,6 +327,15 @@ onUnmounted(() => {
         {{ deleteError }}
       </div>
     </ConfirmModal>
+
+    <!-- Report Modal -->
+    <ReportModal
+      :is-open="isReportModalOpen"
+      reportable-type="post"
+      :reportable-id="post.id"
+      :target-title="post.user ? `Bài viết của ${post.user.name}` : `Bài viết #${post.id}`"
+      @close="isReportModalOpen = false"
+    />
 
     <!-- Image Lightbox Modal -->
     <Teleport to="body">
@@ -476,6 +497,12 @@ onUnmounted(() => {
 }
 
 .btn-delete:hover {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+  background-color: var(--color-danger-soft);
+}
+
+.btn-report:hover {
   color: var(--color-danger);
   border-color: var(--color-danger);
   background-color: var(--color-danger-soft);

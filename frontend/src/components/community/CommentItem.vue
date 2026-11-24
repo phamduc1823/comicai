@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import type { CommentItemData } from '@/types/community'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
+import ReportModal from '@/components/common/ReportModal.vue'
 import CommentItem from './CommentItem.vue'
 
 export interface CommentItemProps {
@@ -44,6 +45,7 @@ const DEFAULT_VISIBLE_REPLIES = 3
 const isConfirmDeleteOpen = ref(false)
 const isExpanded = ref(false)
 const avatarLoadError = ref(false)
+const isReportModalOpen = ref(false)
 
 // Author initials for fallback
 const userInitial = computed(() => {
@@ -248,6 +250,21 @@ function handleConfirmDelete() {
               <span class="action-label">Xóa</span>
             </button>
           </template>
+
+          <!-- Report Button (When not author) -->
+          <template v-if="!isAuthor">
+            <span class="action-divider" aria-hidden="true">•</span>
+            <button
+              type="button"
+              class="btn-action btn-report"
+              title="Báo cáo bình luận vi phạm"
+              :aria-label="`Báo cáo bình luận của ${comment.user.name}`"
+              @click="isReportModalOpen = true"
+            >
+              <span class="action-icon" aria-hidden="true">🚩</span>
+              <span class="action-label">Báo cáo</span>
+            </button>
+          </template>
         </div>
       </div>
     </div>
@@ -306,6 +323,15 @@ function handleConfirmDelete() {
       :is-loading="isDeleting"
       @confirm="handleConfirmDelete"
       @close="isConfirmDeleteOpen = false"
+    />
+
+    <!-- Report Modal -->
+    <ReportModal
+      :is-open="isReportModalOpen"
+      reportable-type="comment"
+      :reportable-id="comment.id"
+      :target-title="`Bình luận của ${comment.user.name}: &quot;${comment.content.slice(0, 60)}&quot;`"
+      @close="isReportModalOpen = false"
     />
   </div>
 </template>
@@ -512,6 +538,10 @@ function handleConfirmDelete() {
 .btn-like.is-liked {
   color: var(--color-danger);
   font-weight: var(--font-weight-semibold);
+}
+
+.btn-report:hover:not(:disabled) {
+  color: var(--color-danger);
 }
 
 .btn-like.is-liked:hover:not(:disabled) {

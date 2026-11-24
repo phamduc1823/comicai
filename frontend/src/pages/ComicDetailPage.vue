@@ -24,6 +24,7 @@ import {
   buildChapterUrl,
 } from '@/utils/chapter'
 import CommentSection from '@/components/community/CommentSection.vue'
+import ReportModal from '@/components/common/ReportModal.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -41,8 +42,13 @@ const errorMessage = ref<string | null>(null)
 // Interaction states (Package 9.5.4)
 const isFollowLoading = ref(false)
 const isBookmarkLoading = ref(false)
+const isReportModalOpen = ref(false)
 const actionError = ref<string | null>(null)
 let errorTimeoutId: ReturnType<typeof setTimeout> | null = null
+
+const isCreatorOfComic = computed(() => {
+  return authStore.isAuthenticated && comic.value?.creator?.id === authStore.user?.id
+})
 
 // UI states
 const coverImageError = ref(false)
@@ -869,6 +875,19 @@ onUnmounted(() => {
                     </span>
                     <span v-if="isBookmarkLoading" class="interact-spinner" aria-hidden="true"></span>
                   </button>
+
+                  <!-- Report Comic Button -->
+                  <button
+                    v-if="!isCreatorOfComic"
+                    type="button"
+                    class="btn-interact btn-report"
+                    title="Báo cáo bộ truyện này vi phạm"
+                    aria-label="Báo cáo vi phạm bộ truyện này"
+                    @click="isReportModalOpen = true"
+                  >
+                    <span class="interact-icon-wrap" aria-hidden="true">🚩</span>
+                    <span class="interact-label">Báo cáo</span>
+                  </button>
                 </div>
               </div>
 
@@ -1006,6 +1025,16 @@ onUnmounted(() => {
         />
       </main>
     </div>
+
+    <!-- Report Comic Modal -->
+    <ReportModal
+      v-if="comic"
+      :is-open="isReportModalOpen"
+      reportable-type="comic"
+      :reportable-id="comic.id"
+      :target-title="`Bộ truyện: ${comic.title}`"
+      @close="isReportModalOpen = false"
+    />
   </div>
 </template>
 
@@ -1657,6 +1686,11 @@ onUnmounted(() => {
   border-color: var(--color-primary);
   color: var(--color-primary);
   transform: translateY(-2px);
+}
+
+.btn-interact.btn-report:hover:not(:disabled) {
+  border-color: #ef4444;
+  color: #ef4444;
 }
 
 .btn-interact:focus-visible {
