@@ -13,6 +13,12 @@
     "test:wallet": "node tests/unit-wallet.mjs",
     "test:admin-banners": "node tests/unit-admin-banners.mjs",
     "test:reports": "node tests/unit-reports.mjs",
+    "test:home-search": "node tests/unit-home-search.mjs",
+    "test:community": "node tests/unit-community.mjs",
+    "test:profile": "node tests/unit-profile.mjs",
+    "test:chat:lazy": "node tests/unit-chat-lazy.mjs",
+    "test:messaging-fixes": "node tests/unit-messaging-fixes.mjs",
+    "test:notifications": "node tests/unit-notifications.mjs",
     "test:chat:browser": "node tests/e2e/chat-browser-mock.mjs",
     "test:e2e": "node tests/e2e/auth.spec.mjs"
   },
