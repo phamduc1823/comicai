@@ -38,9 +38,9 @@ const isLoadingComics = ref(false)
 const isModalOpen = ref(false)
 const editingPost = ref<Post | null>(null)
 
-// Permissions
+// Permissions: Any authenticated active user can create posts
 const canCreatePost = computed(() => {
-  return authStore.isAuthenticated && (authStore.isCreator || authStore.isAdmin)
+  return authStore.isAuthenticated
 })
 
 const hasActiveFilter = computed(() => {
@@ -174,6 +174,17 @@ function openCreateModal() {
   isModalOpen.value = true
 }
 
+function handleCreatePostClick() {
+  if (!authStore.isAuthenticated) {
+    router.push({
+      path: '/login',
+      query: { redirect: route.fullPath },
+    })
+    return
+  }
+  openCreateModal()
+}
+
 function handleEditPost(post: Post) {
   editingPost.value = post
   isModalOpen.value = true
@@ -261,17 +272,18 @@ onUnmounted(() => {
           </div>
           <h1 class="header-title">Bảng tin Cộng đồng</h1>
           <p class="header-subtitle">
-            Không gian giao lưu, chia sẻ bài viết, cảm nghĩ và cập nhật thông báo mới nhất từ các tác giả truyện tranh.
+            Không gian giao lưu, chia sẻ bài viết, cảm nghĩ và thảo luận cùng cộng đồng độc giả và tác giả truyện tranh.
           </p>
         </div>
 
-        <!-- Create Post Button for Creator / Admin -->
-        <div v-if="canCreatePost" class="header-action-group">
+        <!-- Create Post Button -->
+        <div class="header-action-group">
           <button
             type="button"
             class="btn-create-post"
+            :aria-disabled="!canCreatePost"
             aria-label="Tạo bài viết mới"
-            @click="openCreateModal"
+            @click="handleCreatePostClick"
           >
             <span class="btn-icon" aria-hidden="true">✍️</span>
             <span>Đăng bài viết</span>
@@ -383,10 +395,9 @@ onUnmounted(() => {
             Xem tất cả bài viết
           </button>
           <button
-            v-if="canCreatePost"
             type="button"
             class="btn-action-primary"
-            @click="openCreateModal"
+            @click="handleCreatePostClick"
           >
             Tạo bài viết đầu tiên
           </button>

@@ -156,19 +156,30 @@ onUnmounted(() => {
     <!-- Post Header -->
     <header class="post-header">
       <div class="author-info">
-        <div class="author-avatar" aria-hidden="true">
-          <img
-            v-if="post.user.avatar_url"
-            :src="post.user.avatar_url"
-            :alt="post.user.name"
-            class="avatar-img"
-            loading="lazy"
-          />
-          <span v-else class="avatar-initial">{{ userInitial }}</span>
-        </div>
+        <RouterLink
+          :to="'/users/' + post.user.id"
+          class="author-avatar-link"
+          :aria-label="'Xem hồ sơ của ' + post.user.name"
+        >
+          <div class="author-avatar" aria-hidden="true">
+            <img
+              v-if="post.user.avatar_url"
+              :src="post.user.avatar_url"
+              :alt="post.user.name"
+              class="avatar-img"
+              loading="lazy"
+            />
+            <span v-else class="avatar-initial">{{ userInitial }}</span>
+          </div>
+        </RouterLink>
         <div class="author-meta">
           <div class="author-name-row">
-            <span class="author-name">{{ post.user.name }}</span>
+            <RouterLink
+              :to="'/users/' + post.user.id"
+              class="author-name-link"
+            >
+              <span class="author-name">{{ post.user.name }}</span>
+            </RouterLink>
             <span
               v-if="post.user.role === 'admin'"
               class="role-badge role-badge--admin"
@@ -399,6 +410,23 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
+}
+
+.author-avatar-link {
+  text-decoration: none;
+  display: block;
+  border-radius: 50%;
+}
+
+.author-name-link {
+  text-decoration: none;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+}
+
+.author-name-link:hover .author-name {
+  color: var(--color-primary);
 }
 
 .author-avatar {

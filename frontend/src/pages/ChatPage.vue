@@ -23,7 +23,7 @@ const isMobileActive = computed(() => chatStore.activeConversation !== null)
 // Initialize useChatEcho composable with reactive refs for user and active conversation
 useChatEcho({
   userRef: toRef(authStore, 'user'),
-  conversationIdRef: toRef(chatStore, 'activeConversationId'),
+  conversationIdRef: computed(() => (chatStore.activeConversation ? Number(chatStore.activeConversation.id) : null)),
 })
 
 onMounted(async () => {
@@ -54,10 +54,17 @@ async function handleRouteParams() {
     if (!isNaN(targetUserId) && targetUserId !== authStore.user?.id) {
       isOpeningFromRoute.value = true
       try {
-        const conv = await ChatService.createDirectConversation(targetUserId)
-        await chatStore.openConversation(conv.id, authStore.user?.id)
-        // Clean query to avoid repeat creation
-        router.replace({ path: '/chat', query: { conversation_id: conv.id } })
+        const res = await ChatService.findDirectConversation(targetUserId)
+        if (res.data) {
+          // Conversation already exists and has messages, open it directly
+          await chatStore.openConversation(res.data.id, authStore.user?.id)
+          router.replace({ path: '/chat', query: { conversation_id: res.data.id } })
+        } else if (res.recipient) {
+          // No conversation exists yet: open draft conversation state without DB record
+          chatStore.openDraftConversation(res.recipient)
+        }
+      } catch {
+        chatStore.error = 'Không thể tìm thấy thông tin người dùng.'
       } finally {
         isOpeningFromRoute.value = false
       }
@@ -86,8 +93,12 @@ function handleBackToSidebar() {
 
 async function handleSendMessage(body: string) {
   try {
+    const wasDraft = chatStore.activeConversation?.id === 0
     await chatStore.sendMessage(body)
     composerRef.value?.clear()
+    if (wasDraft && chatStore.activeConversation?.id) {
+      router.replace({ path: '/chat', query: { conversation_id: chatStore.activeConversation.id } })
+    }
   } catch {
     // MessageComposer preserves user's text on error
   }

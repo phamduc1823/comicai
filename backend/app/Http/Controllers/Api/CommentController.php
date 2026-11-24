@@ -167,6 +167,13 @@ class CommentController extends Controller
             ]);
         });
 
+        // 4. Trigger notification after commit
+        try {
+            app(\App\Services\NotificationService::class)->notifyCommentCreated($comment, $user);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
         $comment->load(['user:id,name,avatar_path,role']);
 
         return (new CommentResource($comment))

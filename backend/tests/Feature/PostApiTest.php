@@ -145,43 +145,160 @@ class PostApiTest extends TestCase
     }
 
     /**
-     * Test reader cannot create, update, or delete posts, but can like/unlike.
+     * Test reader can create post successfully with and without comic reference (CAI-COMM-01).
      */
-    public function test_reader_cannot_create_update_or_delete_posts_but_can_like(): void
+    public function test_reader_can_create_post_with_and_without_comic(): void
     {
-        $post = Post::factory()->create(['user_id' => $this->creator->id]);
-
-        // Reader cannot create
-        $this->actingAs($this->reader)
+        // 1. Reader creates post without comic
+        $response1 = $this->actingAs($this->reader)
             ->postJson('/api/posts', [
-                'content' => 'Reader muốn đăng bài',
-            ])
-            ->assertStatus(403);
+                'content' => 'Chào cộng đồng, mình là độc giả mới!',
+            ]);
 
-        // Reader cannot update
-        $this->actingAs($this->reader)
-            ->putJson("/api/posts/{$post->id}", [
-                'content' => 'Reader muốn sửa bài',
-            ])
-            ->assertStatus(403);
-
-        // Reader cannot delete
-        $this->actingAs($this->reader)
-            ->deleteJson("/api/posts/{$post->id}")
-            ->assertStatus(403);
-
-        // Reader CAN like
-        $this->actingAs($this->reader)
-            ->postJson("/api/posts/{$post->id}/like")
-            ->assertStatus(200)
+        $response1->assertStatus(201)
             ->assertJson([
-                'status' => 'success',
                 'data' => [
-                    'id' => $post->id,
-                    'liked' => true,
-                    'likes_count' => 1,
+                    'content' => 'Chào cộng đồng, mình là độc giả mới!',
+                    'likes_count' => 0,
+                    'comments_count' => 0,
+                    'comic' => null,
+                    'user' => [
+                        'id' => $this->reader->id,
+                        'name' => 'Reader User',
+                        'role' => 'reader',
+                    ],
                 ],
             ]);
+
+        // 2. Reader creates post with comic reference and image
+        $imageFile = UploadedFile::fake()->image('review.png', 400, 400);
+        $response2 = $this->actingAs($this->reader)
+            ->postJson('/api/posts', [
+                'content' => 'Review truyện cực hay!',
+                'comic_id' => $this->approvedComic->id,
+                'image' => $imageFile,
+            ]);
+
+        $response2->assertStatus(201)
+            ->assertJson([
+                'data' => [
+                    'content' => 'Review truyện cực hay!',
+                    'comic' => [
+                        'id' => $this->approvedComic->id,
+                        'title' => 'Approved Comic',
+                    ],
+                ],
+            ]);
+
+        $this->assertDatabaseHas('posts', [
+            'user_id' => $this->reader->id,
+            'content' => 'Review truyện cực hay!',
+            'comic_id' => $this->approvedComic->id,
+        ]);
+    }
+
+    /**
+     * Test admin can also create posts.
+     */
+    public function test_admin_can_create_post(): void
+    {
+        $response = $this->actingAs($this->admin)
+            ->postJson('/api/posts', [
+                'content' => 'Thông báo từ quản trị viên hệ thống.',
+            ]);
+
+        $response->assertStatus(201)
+            ->assertJson([
+                'data' => [
+                    'content' => 'Thông báo từ quản trị viên hệ thống.',
+                    'user' => [
+                        'id' => $this->admin->id,
+                        'role' => 'admin',
+                    ],
+                ],
+            ]);
+    }
+
+    /**
+     * Test inactive or banned user cannot create, update, or delete posts.
+     */
+    public function test_inactive_user_cannot_create_update_or_delete_posts(): void
+    {
+        $inactiveReader = User::create([
+            'name' => 'Banned Reader',
+            'email' => 'banned@example.com',
+            'password' => 'Password123!',
+        ]);
+        $inactiveReader->role = 'reader';
+        $inactiveReader->is_active = false;
+        $inactiveReader->save();
+
+        $post = Post::factory()->create(['user_id' => $inactiveReader->id]);
+
+        // Inactive cannot create
+        $this->actingAs($inactiveReader)
+            ->postJson('/api/posts', ['content' => 'Banned user attempt'])
+            ->assertStatus(403);
+
+        // Inactive cannot update
+        $this->actingAs($inactiveReader)
+            ->putJson("/api/posts/{$post->id}", ['content' => 'Banned user update'])
+            ->assertStatus(403);
+
+        // Inactive cannot delete
+        $this->actingAs($inactiveReader)
+            ->deleteJson("/api/posts/{$post->id}")
+            ->assertStatus(403);
+    }
+
+    /**
+     * Test reader can update and delete their own post.
+     */
+    public function test_reader_can_update_and_delete_own_post(): void
+    {
+        $post = Post::factory()->create([
+            'user_id' => $this->reader->id,
+            'content' => 'Nội dung ban đầu của Reader',
+        ]);
+
+        // 1. Reader updates own post
+        $this->actingAs($this->reader)
+            ->putJson("/api/posts/{$post->id}", [
+                'content' => 'Nội dung đã được Reader sửa',
+            ])
+            ->assertStatus(200)
+            ->assertJson([
+                'data' => [
+                    'content' => 'Nội dung đã được Reader sửa',
+                ],
+            ]);
+
+        // 2. Reader deletes own post
+        $this->actingAs($this->reader)
+            ->deleteJson("/api/posts/{$post->id}")
+            ->assertStatus(200);
+
+        $this->assertDatabaseMissing('posts', ['id' => $post->id]);
+    }
+
+    /**
+     * Test reader cannot update or delete someone else's post.
+     */
+    public function test_reader_cannot_update_or_delete_someone_elses_post(): void
+    {
+        $creatorPost = Post::factory()->create(['user_id' => $this->creator->id]);
+
+        // Reader cannot update creator's post
+        $this->actingAs($this->reader)
+            ->putJson("/api/posts/{$creatorPost->id}", [
+                'content' => 'Reader cố tình sửa bài của tác giả',
+            ])
+            ->assertStatus(403);
+
+        // Reader cannot delete creator's post
+        $this->actingAs($this->reader)
+            ->deleteJson("/api/posts/{$creatorPost->id}")
+            ->assertStatus(403);
     }
 
     /**

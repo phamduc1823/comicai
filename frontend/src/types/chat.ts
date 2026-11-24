@@ -27,6 +27,7 @@ export interface Message {
   body: string
   client_message_id: string | null
   created_at: string | null
+  status?: 'sending' | 'sent' | 'failed'
 }
 
 export interface ConversationLastMessage {

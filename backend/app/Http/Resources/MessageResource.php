@@ -16,12 +16,12 @@ class MessageResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'id' => $this->id,
-            'conversation_id' => $this->conversation_id,
-            'sender_id' => $this->sender_id,
-            'type' => $this->type,
-            'body' => $this->body,
-            'client_message_id' => $this->client_message_id,
+            'id' => (int) $this->id,
+            'conversation_id' => (int) $this->conversation_id,
+            'sender_id' => (int) $this->sender_id,
+            'type' => (string) $this->type,
+            'body' => (string) $this->body,
+            'client_message_id' => $this->client_message_id ? (string) $this->client_message_id : null,
             'created_at' => $this->created_at?->toISOString(),
         ];
     }

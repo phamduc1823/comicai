@@ -38,12 +38,47 @@ class ConversationService
             ->whereHas('participants', function ($q) use ($user) {
                 $q->where('user_id', $user->id);
             })
+            ->where(function ($q) {
+                $q->whereNotNull('last_message_id')
+                    ->orWhereNotNull('last_message_at')
+                    ->orWhereHas('messages');
+            })
             ->with([
                 'participants.user:id,name,avatar_path,role',
                 'lastMessage',
             ])
             ->orderByRaw('CASE WHEN last_message_at IS NULL THEN 1 ELSE 0 END, last_message_at DESC, conversations.id DESC')
             ->paginate($perPage);
+    }
+
+    /**
+     * Find existing direct conversation between two users without creating one.
+     */
+    public function findDirectConversation(User $authUser, int $recipientId): ?Conversation
+    {
+        if ($authUser->id === $recipientId) {
+            return null;
+        }
+
+        $userOneId = min($authUser->id, $recipientId);
+        $userTwoId = max($authUser->id, $recipientId);
+
+        $existing = Conversation::where('type', 'direct')
+            ->where('user_one_id', $userOneId)
+            ->where('user_two_id', $userTwoId)
+            ->with([
+                'users:id,name,avatar_path,role',
+                'participants.user:id,name,avatar_path,role',
+                'lastMessage',
+            ])
+            ->first();
+
+        if ($existing) {
+            $existing->unread_count = $this->calculateUnreadCount($existing, $authUser->id);
+            return $existing;
+        }
+
+        return null;
     }
 
     /**
@@ -175,8 +210,9 @@ class ConversationService
      */
     public function calculateUnreadCount(Conversation $conversation, int $userId): int
     {
-        $participant = $conversation->participants->firstWhere('user_id', $userId)
-            ?? $conversation->participants()->where('user_id', $userId)->first();
+        $participant = ConversationParticipant::where('conversation_id', $conversation->id)
+            ->where('user_id', $userId)
+            ->first();
 
         if (! $participant) {
             return 0;
@@ -185,8 +221,8 @@ class ConversationService
         $query = Message::where('conversation_id', $conversation->id)
             ->where('sender_id', '!=', $userId);
 
-        if ($participant->last_read_message_id) {
-            $query->where('id', '>', $participant->last_read_message_id);
+        if ($participant->last_read_message_id !== null) {
+            $query->where('id', '>', (int) $participant->last_read_message_id);
         }
 
         return $query->count();

@@ -33,6 +33,10 @@ class ConversationParticipant extends Model
     protected function casts(): array
     {
         return [
+            'id' => 'integer',
+            'conversation_id' => 'integer',
+            'user_id' => 'integer',
+            'last_read_message_id' => 'integer',
             'last_read_at' => 'datetime',
             'is_muted' => 'boolean',
         ];

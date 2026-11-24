@@ -76,9 +76,9 @@ class ComicController extends Controller
             $searchTerm = "%{$escaped}%";
 
             $query->where(function ($q) use ($searchTerm) {
-                $q->whereRaw("title LIKE ? ESCAPE '\\'", [$searchTerm])
-                  ->orWhereRaw("author_name LIKE ? ESCAPE '\\'", [$searchTerm])
-                  ->orWhereRaw("alternative_titles LIKE ? ESCAPE '\\'", [$searchTerm]);
+                $q->whereRaw('title LIKE ? ESCAPE ?', [$searchTerm, '\\'])
+                  ->orWhereRaw('author_name LIKE ? ESCAPE ?', [$searchTerm, '\\'])
+                  ->orWhereRaw('alternative_titles LIKE ? ESCAPE ?', [$searchTerm, '\\']);
             });
         }
 

@@ -42,6 +42,20 @@ class Message extends Model
     ];
 
     /**
+     * Get the attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'id' => 'integer',
+            'conversation_id' => 'integer',
+            'sender_id' => 'integer',
+        ];
+    }
+
+    /**
      * Conversation this message belongs to.
      */
     public function conversation(): BelongsTo

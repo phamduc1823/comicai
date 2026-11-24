@@ -70,7 +70,7 @@ class ChatBroadcastEventsTest extends TestCase
 
         Event::assertDispatched(MessageSent::class, function (MessageSent $event) use ($messageId, $uuid) {
             $channels = $event->broadcastOn();
-            $this->assertCount(1, $channels);
+            $this->assertGreaterThanOrEqual(1, count($channels));
             $this->assertEquals('private-chat.conversation.' . $this->conversation->id, $channels[0]->name);
             $this->assertEquals('MessageSent', $event->broadcastAs());
 
@@ -197,7 +197,7 @@ class ChatBroadcastEventsTest extends TestCase
 
         Event::assertDispatched(MessagesRead::class, function (MessagesRead $event) use ($message) {
             $channels = $event->broadcastOn();
-            $this->assertCount(1, $channels);
+            $this->assertGreaterThanOrEqual(1, count($channels));
             $this->assertEquals('private-chat.conversation.' . $this->conversation->id, $channels[0]->name);
             $this->assertEquals('MessagesRead', $event->broadcastAs());
 

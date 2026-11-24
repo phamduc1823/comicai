@@ -64,6 +64,14 @@ const router = createRouter({
       },
     },
     {
+      path: '/users/:id',
+      name: 'user-profile',
+      component: () => import('@/pages/UserProfilePage.vue'),
+      meta: {
+        title: 'Hồ sơ người dùng — BlueToon',
+      },
+    },
+    {
       path: '/library',
       name: 'library',
       component: () => import('@/pages/LibraryPage.vue'),

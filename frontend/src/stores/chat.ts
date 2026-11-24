@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { ChatService } from '@/services/chatService'
+import { useAuthStore } from '@/stores/auth'
 import type {
   Conversation,
   Message,
@@ -85,10 +86,12 @@ export const useChatStore = defineStore('chat', () => {
    * Recalculate total unread count from existing conversations list.
    */
   function updateComputedTotalUnread(): void {
-    totalUnreadCount.value = conversations.value.reduce(
-      (sum, conv) => sum + (conv.unread_count || 0),
-      0
-    )
+    if (conversations.value.length > 0) {
+      totalUnreadCount.value = conversations.value.reduce(
+        (sum, conv) => sum + (conv.unread_count || 0),
+        0
+      )
+    }
   }
 
   /**
@@ -136,16 +139,17 @@ export const useChatStore = defineStore('chat', () => {
       // Update in conversations list if present
       const index = conversations.value.findIndex((c) => c.id === conversationId)
       if (index !== -1) {
-        conversations.value[index] = { ...conversations.value[index], ...convData }
+        conversations.value[index] = { ...conversations.value[index], ...convData, unread_count: 0 }
       } else {
-        conversations.value.push(convData)
+        conversations.value.push({ ...convData, unread_count: 0 })
         sortConversations()
       }
+      updateComputedTotalUnread()
 
       // If there are messages and the latest message is from the other user, mark as read
       if (messagesData.data.length > 0 && currentUserId) {
         const latestMessage = messagesData.data[messagesData.data.length - 1]
-        if (latestMessage.sender_id !== currentUserId) {
+        if (Number(latestMessage.sender_id) !== Number(currentUserId)) {
           await markAsRead(latestMessage.id, currentUserId)
         }
       }
@@ -158,6 +162,33 @@ export const useChatStore = defineStore('chat', () => {
         isLoadingMessages.value = false
       }
     }
+  }
+
+  /**
+   * Open a draft conversation with a recipient without creating a database record.
+   * Enables lazy conversation creation upon first message send.
+   */
+  function openDraftConversation(recipient: import('@/types/chat').ChatUserSummary): void {
+    ++openConversationToken
+    activeConversation.value = {
+      id: 0,
+      type: 'direct',
+      recipient,
+      last_message: null,
+      last_message_at: null,
+      participants: [],
+      unread_count: 0,
+      created_at: null,
+      updated_at: null,
+    }
+    activeMessages.value = []
+    messagesPagination.value = {
+      limit: 25,
+      has_more: false,
+      next_cursor: null,
+    }
+    error.value = null
+    isLoadingMessages.value = false
   }
 
   /**
@@ -214,17 +245,127 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
-   * Send a new message to active conversation.
+   * Send a new message to active conversation with instant Optimistic UI.
+   * Immediately adds the message to activeMessages and updates sidebar preview,
+   * then reconciles with server response or marks as failed on network error.
    */
-  async function sendMessage(body: string, type = 'text'): Promise<Message | null> {
+  async function sendMessage(body: string, type = 'text', overrideUserId?: number): Promise<Message | null> {
     const trimmed = body.trim()
-    if (!activeConversation.value || !trimmed || isSendingMessage.value) {
+    if (!activeConversation.value || !trimmed) {
       return null
     }
 
-    const convId = activeConversation.value.id
-    // Preserve client_message_id across retries for the same draft text
+    const convId = Number(activeConversation.value.id)
     const clientMessageId = getOrCreateClientMessageId(trimmed)
+    const authStore = useAuthStore()
+    const currentUserId = Number(overrideUserId ?? authStore.user?.id ?? 0)
+
+    // Handle lazy conversation creation for draft conversations (id === 0)
+    if (convId === 0) {
+      if (!activeConversation.value.recipient) {
+        return null
+      }
+      const recipientId = activeConversation.value.recipient.id
+      isSendingMessage.value = true
+      error.value = null
+
+      const tempId = -Date.now()
+      const optimisticMsg: Message = {
+        id: tempId,
+        conversation_id: 0,
+        sender_id: currentUserId,
+        type,
+        body: trimmed,
+        client_message_id: clientMessageId,
+        created_at: new Date().toISOString(),
+        status: 'sending',
+      }
+      activeMessages.value = [optimisticMsg]
+
+      try {
+        const res = await ChatService.sendDirectMessage(recipientId, {
+          body: trimmed,
+          type,
+          client_message_id: clientMessageId,
+        })
+
+        clearClientMessageId()
+
+        // Transition from draft to persisted conversation
+        activeConversation.value = res.conversation
+        activeMessages.value = [{ ...res.data, status: 'sent' }]
+        messagesPagination.value = {
+          limit: 25,
+          has_more: false,
+          next_cursor: null,
+        }
+
+        // If participants missing, load conversation detail asynchronously to ensure read receipts work
+        if (!res.conversation.participants || res.conversation.participants.length === 0) {
+          ChatService.getConversation(res.conversation.id).then((fullConv) => {
+            if (activeConversation.value && Number(activeConversation.value.id) === Number(fullConv.id)) {
+              activeConversation.value = {
+                ...activeConversation.value,
+                participants: fullConv.participants || [],
+              }
+            }
+          }).catch(() => {})
+        }
+
+        // Add to conversations list
+        const idx = conversations.value.findIndex((c) => Number(c.id) === Number(res.conversation.id))
+        if (idx !== -1) {
+          conversations.value[idx] = res.conversation
+        } else {
+          conversations.value.unshift(res.conversation)
+        }
+        sortConversations()
+        return res.data
+      } catch (err) {
+        if (activeMessages.value.length > 0 && activeMessages.value[0].id === tempId) {
+          activeMessages.value[0].status = 'failed'
+          activeMessages.value = [...activeMessages.value]
+        }
+        error.value = getErrorMessage(err, 'Gửi tin nhắn không thành công.')
+        throw err
+      } finally {
+        isSendingMessage.value = false
+      }
+    }
+
+    // Standard conversation: immediately render optimistic message
+    const tempId = -Date.now()
+    const optimisticMsg: Message = {
+      id: tempId,
+      conversation_id: convId,
+      sender_id: currentUserId,
+      type,
+      body: trimmed,
+      client_message_id: clientMessageId,
+      created_at: new Date().toISOString(),
+      status: 'sending',
+    }
+
+    // Instantly append optimistic message to chat pane (0ms latency perception)
+    activeMessages.value = [...activeMessages.value, optimisticMsg]
+
+    const optimisticLastMsg = {
+      id: tempId,
+      sender_id: currentUserId,
+      type,
+      body: trimmed,
+      created_at: optimisticMsg.created_at,
+    }
+    activeConversation.value.last_message = optimisticLastMsg
+    activeConversation.value.last_message_at = optimisticMsg.created_at
+
+    // Update conversation sidebar preview immediately
+    const conv = conversations.value.find((c) => Number(c.id) === convId)
+    if (conv) {
+      conv.last_message = optimisticLastMsg
+      conv.last_message_at = optimisticMsg.created_at
+      sortConversations()
+    }
 
     isSendingMessage.value = true
     error.value = null
@@ -239,41 +380,47 @@ export const useChatStore = defineStore('chat', () => {
       // On successful send, clear saved client_message_id
       clearClientMessageId()
 
-      // Guard: only append to activeMessages if activeConversation is still the same conversation
-      if (activeConversation.value && activeConversation.value.id === convId) {
-        // Deduplicate before appending
+      const reconciledMsg: Message = {
+        ...createdMessage,
+        id: Number(createdMessage.id),
+        sender_id: Number(createdMessage.sender_id),
+        conversation_id: convId,
+        status: 'sent',
+      }
+
+      // Reconcile optimistic message in activeMessages
+      if (activeConversation.value && Number(activeConversation.value.id) === convId) {
         const existingIdx = activeMessages.value.findIndex(
           (m) =>
-            m.id === createdMessage.id ||
-            (createdMessage.client_message_id && m.client_message_id === createdMessage.client_message_id)
+            m.id === tempId ||
+            (m.client_message_id && m.client_message_id === clientMessageId) ||
+            Number(m.id) === Number(createdMessage.id)
         )
 
         if (existingIdx !== -1) {
-          activeMessages.value[existingIdx] = createdMessage
+          activeMessages.value[existingIdx] = reconciledMsg
+          activeMessages.value = [...activeMessages.value]
         } else {
-          activeMessages.value.push(createdMessage)
-          // Ensure chronological ascending sort
-          activeMessages.value.sort((a, b) => a.id - b.id)
+          activeMessages.value = [...activeMessages.value, reconciledMsg]
+          activeMessages.value.sort((a, b) => Number(a.id) - Number(b.id))
         }
 
         const lastMsg = {
-          id: createdMessage.id,
-          sender_id: createdMessage.sender_id,
+          id: Number(createdMessage.id),
+          sender_id: Number(createdMessage.sender_id),
           type: createdMessage.type,
           body: createdMessage.body,
           created_at: createdMessage.created_at,
         }
-
         activeConversation.value.last_message = lastMsg
         activeConversation.value.last_message_at = createdMessage.created_at
       }
 
-      // Update conversation last_message in list
-      const conv = conversations.value.find((c) => c.id === convId)
+      // Update conversation in list
       if (conv) {
         conv.last_message = {
-          id: createdMessage.id,
-          sender_id: createdMessage.sender_id,
+          id: Number(createdMessage.id),
+          sender_id: Number(createdMessage.sender_id),
           type: createdMessage.type,
           body: createdMessage.body,
           created_at: createdMessage.created_at,
@@ -284,6 +431,18 @@ export const useChatStore = defineStore('chat', () => {
 
       return createdMessage
     } catch (err) {
+      // Mark optimistic message as failed
+      if (activeConversation.value && Number(activeConversation.value.id) === convId) {
+        const failedMsg = activeMessages.value.find(
+          (m) =>
+            m.id === tempId ||
+            (m.client_message_id && m.client_message_id === clientMessageId)
+        )
+        if (failedMsg) {
+          failedMsg.status = 'failed'
+          activeMessages.value = [...activeMessages.value]
+        }
+      }
       error.value = getErrorMessage(err, 'Gửi tin nhắn không thành công.')
       throw err
     } finally {
@@ -315,22 +474,30 @@ export const useChatStore = defineStore('chat', () => {
 
       // Update read marker in active conversation participants if still open
       if (activeConversation.value && activeConversation.value.id === convId) {
-        const participant = activeConversation.value.participants.find(
-          (p) => (currentUserId ? p.user_id === currentUserId : true)
-        )
-        if (participant) {
-          if (!participant.last_read_message_id || data.last_read_message_id > participant.last_read_message_id) {
-            participant.last_read_message_id = data.last_read_message_id
-            participant.last_read_at = data.last_read_at
+        if (activeConversation.value.participants) {
+          const participant = activeConversation.value.participants.find(
+            (p) => (currentUserId ? Number(p.user_id) === Number(currentUserId) : true)
+          )
+          if (participant) {
+            const newLastRead = Number(data.last_read_message_id)
+            const currentLastRead = participant.last_read_message_id ? Number(participant.last_read_message_id) : 0
+            if (!participant.last_read_message_id || newLastRead > currentLastRead) {
+              participant.last_read_message_id = newLastRead
+              participant.last_read_at = data.last_read_at
+            }
           }
         }
         activeConversation.value.unread_count = 0
+        activeConversation.value = {
+          ...activeConversation.value,
+          participants: activeConversation.value.participants ? [...activeConversation.value.participants] : [],
+        }
       }
 
       // Update in conversation list
       const conv = conversations.value.find((c) => c.id === convId)
       if (conv) {
-        if (!conv.last_message || conv.last_message.id <= data.last_read_message_id) {
+        if (!conv.last_message || Number(conv.last_message.id) <= Number(data.last_read_message_id)) {
           conv.unread_count = 0
         }
         updateComputedTotalUnread()
@@ -376,45 +543,80 @@ export const useChatStore = defineStore('chat', () => {
    * Handle incoming MessageSent broadcast event from WebSocket.
    * Strictly enforces deduplication by ID and client_message_id.
    */
-  function handleMessageSent(payload: MessageSentPayload, currentUserId?: number): void {
-    // Normalize payload in case of nested message wrapper
-    const message: Message = payload.message || payload
+  /**
+   * Handle incoming MessageSent broadcast event from WebSocket.
+   * Strictly enforces deduplication and reconciliation with optimistic messages.
+   */
+  function handleMessageSent(payload: MessageSentPayload, _currentUserId?: number): void {
+    const authStore = useAuthStore()
+    const currentUserId = _currentUserId || authStore.user?.id
 
-    // 1. If the message belongs to the active conversation, append with deduplication
-    if (activeConversation.value && activeConversation.value.id === message.conversation_id) {
-      const isDuplicate = activeMessages.value.some(
+    // Normalize payload in case of nested message wrapper
+    const rawMessage: Message = payload.message || payload
+    const convId = Number(rawMessage.conversation_id)
+    const activeId = activeConversation.value ? Number(activeConversation.value.id) : null
+
+    const message: Message = {
+      ...rawMessage,
+      id: Number(rawMessage.id),
+      sender_id: Number(rawMessage.sender_id),
+      conversation_id: convId,
+      status: 'sent',
+    }
+
+    // 1. If the message belongs to the active conversation (or transitions an open draft with this recipient)
+    let isViewing = activeConversation.value && Number(activeConversation.value.id) === convId
+    if (
+      !isViewing &&
+      activeConversation.value &&
+      Number(activeConversation.value.id) === 0 &&
+      activeConversation.value.recipient &&
+      Number(activeConversation.value.recipient.id) === Number(rawMessage.sender_id)
+    ) {
+      activeConversation.value.id = convId
+      isViewing = true
+    }
+
+    if (isViewing) {
+      const existingIdx = activeMessages.value.findIndex(
         (m) =>
-          m.id === message.id ||
+          Number(m.id) === Number(message.id) ||
           (message.client_message_id && m.client_message_id === message.client_message_id)
       )
 
-      if (!isDuplicate) {
-        activeMessages.value.push(message)
-        // Strictly preserve chronological ascending order
-        activeMessages.value.sort((a, b) => a.id - b.id)
+      if (existingIdx !== -1) {
+        // Reconcile optimistic message or update existing
+        activeMessages.value[existingIdx] = message
+        activeMessages.value = [...activeMessages.value]
+      } else {
+        // Append new message and reassign for immediate Vue 3 reactivity
+        activeMessages.value = [...activeMessages.value, message]
+        activeMessages.value.sort((a, b) => Number(a.id) - Number(b.id))
 
         // If message is from another user and conversation is open, mark as read
-        if (currentUserId && message.sender_id !== currentUserId) {
-          markAsRead(message.id, currentUserId)
+        if (currentUserId && Number(message.sender_id) !== Number(currentUserId)) {
+          markAsRead(Number(message.id), currentUserId)
         }
       }
 
-      activeConversation.value.last_message = {
-        id: message.id,
-        sender_id: message.sender_id,
-        type: message.type,
-        body: message.body,
-        created_at: message.created_at,
+      if (activeConversation.value) {
+        activeConversation.value.last_message = {
+          id: Number(message.id),
+          sender_id: Number(message.sender_id),
+          type: message.type,
+          body: message.body,
+          created_at: message.created_at,
+        }
+        activeConversation.value.last_message_at = message.created_at
       }
-      activeConversation.value.last_message_at = message.created_at
     }
 
     // 2. Update conversation in conversations list
-    const conv = conversations.value.find((c) => c.id === message.conversation_id)
+    const conv = conversations.value.find((c) => Number(c.id) === convId)
     if (conv) {
       conv.last_message = {
-        id: message.id,
-        sender_id: message.sender_id,
+        id: Number(message.id),
+        sender_id: Number(message.sender_id),
         type: message.type,
         body: message.body,
         created_at: message.created_at,
@@ -422,17 +624,21 @@ export const useChatStore = defineStore('chat', () => {
       conv.last_message_at = message.created_at
 
       // If not currently viewing, increment unread count
-      if (!activeConversation.value || activeConversation.value.id !== message.conversation_id) {
-        if (currentUserId && message.sender_id !== currentUserId) {
+      if (activeId !== convId) {
+        if (currentUserId && Number(message.sender_id) !== Number(currentUserId)) {
           conv.unread_count = (conv.unread_count || 0) + 1
-          totalUnreadCount.value += 1
+          updateComputedTotalUnread()
         }
       }
 
       sortConversations()
     } else {
-      // Conversation not yet loaded in list; fetch authoritative list from REST
+      // Conversation not yet loaded in list; fetch authoritative list & unread count
+      if (activeId !== convId && currentUserId && Number(message.sender_id) !== Number(currentUserId)) {
+        totalUnreadCount.value = Math.max(0, totalUnreadCount.value + 1)
+      }
       fetchConversations()
+      fetchUnreadCount()
     }
   }
 
@@ -441,33 +647,74 @@ export const useChatStore = defineStore('chat', () => {
    * Updates sidebar conversation and unread count without duplicate increments.
    */
   function handleConversationUpdated(payload: ConversationUpdatedPayload, _currentUserId?: number): void {
-    const conv = conversations.value.find((c) => c.id === payload.conversation_id)
+    const authStore = useAuthStore()
+    const currentUserId = _currentUserId || authStore.user?.id
+
+    const convId = Number(payload.conversation_id)
+    const conv = conversations.value.find((c) => Number(c.id) === convId)
+    let isViewing = activeConversation.value && Number(activeConversation.value.id) === convId
+    if (
+      !isViewing &&
+      activeConversation.value &&
+      Number(activeConversation.value.id) === 0 &&
+      activeConversation.value.recipient &&
+      Number(activeConversation.value.recipient.id) === Number(payload.last_message.sender_id)
+    ) {
+      activeConversation.value.id = convId
+      isViewing = true
+    }
+
+    // 1. If user is currently looking at this conversation, append/reconcile the message into activeMessages!
+    if (isViewing) {
+      const rawMsg = payload.last_message
+      const message: Message = {
+        ...rawMsg,
+        id: Number(rawMsg.id),
+        sender_id: Number(rawMsg.sender_id),
+        conversation_id: convId,
+        status: 'sent',
+      }
+      const existingIdx = activeMessages.value.findIndex(
+        (m) =>
+          Number(m.id) === Number(message.id) ||
+          (message.client_message_id && m.client_message_id === message.client_message_id)
+      )
+
+      if (existingIdx !== -1) {
+        activeMessages.value[existingIdx] = message
+        activeMessages.value = [...activeMessages.value]
+      } else {
+        activeMessages.value = [...activeMessages.value, message]
+        activeMessages.value.sort((a, b) => Number(a.id) - Number(b.id))
+
+        if (currentUserId && Number(message.sender_id) !== Number(currentUserId)) {
+          markAsRead(Number(message.id), currentUserId)
+        }
+      }
+
+      if (activeConversation.value) {
+        activeConversation.value.last_message = {
+          id: Number(message.id),
+          sender_id: Number(message.sender_id),
+          type: message.type,
+          body: message.body,
+          created_at: message.created_at,
+        }
+        activeConversation.value.last_message_at = message.created_at
+      }
+    }
 
     if (conv) {
-      // Out-of-order snapshot protection:
-      // 1. If incoming message ID is older than our existing last_message ID, this event is stale.
-      // 2. If incoming message ID is the SAME as existing last_message ID, but payload unread_count is GREATER
-      //    than current unread_count (e.g. event captured before a read was committed), it's a stale pre-read snapshot.
-      //    Never let a stale snapshot resurrect unread count.
-      if (conv.last_message) {
-        if (payload.last_message.id < conv.last_message.id) {
-          debouncedSyncUnread()
-          return
-        }
-        if (
-          payload.last_message.id === conv.last_message.id &&
-          conv.unread_count !== undefined &&
-          payload.unread_count > conv.unread_count
-        ) {
-          debouncedSyncUnread()
-          return
-        }
+      // Out-of-order snapshot protection: ignore only if incoming message ID is strictly older than existing
+      if (conv.last_message && Number(payload.last_message.id) < Number(conv.last_message.id)) {
+        debouncedSyncUnread()
+        return
       }
 
       // Event is newer or equal: update last_message
       conv.last_message = {
-        id: payload.last_message.id,
-        sender_id: payload.last_message.sender_id,
+        id: Number(payload.last_message.id),
+        sender_id: Number(payload.last_message.sender_id),
         type: payload.last_message.type,
         body: payload.last_message.body,
         created_at: payload.last_message.created_at,
@@ -475,18 +722,23 @@ export const useChatStore = defineStore('chat', () => {
       conv.last_message_at = payload.last_message.created_at
 
       // If user is currently looking at this conversation, unread count remains 0
-      if (activeConversation.value && activeConversation.value.id === payload.conversation_id) {
+      if (isViewing) {
         conv.unread_count = 0
       } else {
         // Authoritative unread count from backend event
-        conv.unread_count = payload.unread_count
+        conv.unread_count = Number(payload.unread_count)
       }
 
       sortConversations()
       updateComputedTotalUnread()
     } else {
-      // New conversation created by another user; refresh list from authoritative REST API
+      // Conversation not yet loaded in list (e.g. user on another page such as HomePage)
+      // Immediately increment totalUnreadCount so Header unread badge updates without reload!
+      if (!isViewing) {
+        totalUnreadCount.value = Math.max(1, totalUnreadCount.value + Number(payload.unread_count || 1))
+      }
       fetchConversations()
+      fetchUnreadCount()
     }
   }
 
@@ -495,16 +747,25 @@ export const useChatStore = defineStore('chat', () => {
    * Strictly enforces monotonic progression of read markers.
    */
   function handleMessagesRead(payload: MessagesReadPayload): void {
-    if (activeConversation.value && activeConversation.value.id === payload.conversation_id) {
-      const participant = activeConversation.value.participants.find(
-        (p) => p.user_id === payload.user_id
-      )
+    if (activeConversation.value && Number(activeConversation.value.id) === Number(payload.conversation_id)) {
+      if (activeConversation.value.participants) {
+        const participant = activeConversation.value.participants.find(
+          (p) => Number(p.user_id) === Number(payload.user_id)
+        )
 
-      if (participant) {
-        // Strictly monotonic: only advance forward, never move backward
-        if (!participant.last_read_message_id || payload.last_read_message_id > participant.last_read_message_id) {
-          participant.last_read_message_id = payload.last_read_message_id
-          participant.last_read_at = payload.last_read_at
+        if (participant) {
+          // Strictly monotonic: only advance forward, never move backward
+          const newLastRead = Number(payload.last_read_message_id)
+          const currentLastRead = participant.last_read_message_id ? Number(participant.last_read_message_id) : 0
+          if (!participant.last_read_message_id || newLastRead > currentLastRead) {
+            participant.last_read_message_id = newLastRead
+            participant.last_read_at = payload.last_read_at
+            // Trigger reactive update across components
+            activeConversation.value = {
+              ...activeConversation.value,
+              participants: [...activeConversation.value.participants],
+            }
+          }
         }
       }
     }
@@ -567,6 +828,7 @@ export const useChatStore = defineStore('chat', () => {
     // Actions
     fetchConversations,
     openConversation,
+    openDraftConversation,
     closeConversation,
     loadOlderMessages,
     sendMessage,

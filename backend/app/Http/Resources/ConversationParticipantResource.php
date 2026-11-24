@@ -16,18 +16,18 @@ class ConversationParticipantResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'id' => $this->id,
-            'conversation_id' => $this->conversation_id,
-            'user_id' => $this->user_id,
+            'id' => (int) $this->id,
+            'conversation_id' => (int) $this->conversation_id,
+            'user_id' => (int) $this->user_id,
             'user' => $this->whenLoaded('user', function () {
                 return [
-                    'id' => $this->user->id,
-                    'name' => $this->user->name,
+                    'id' => (int) $this->user->id,
+                    'name' => (string) $this->user->name,
                     'avatar_path' => $this->user->avatar_path,
-                    'role' => $this->user->role,
+                    'role' => (string) $this->user->role,
                 ];
             }),
-            'last_read_message_id' => $this->last_read_message_id,
+            'last_read_message_id' => $this->last_read_message_id !== null ? (int) $this->last_read_message_id : null,
             'last_read_at' => $this->last_read_at?->toISOString(),
             'is_muted' => (bool) $this->is_muted,
             'created_at' => $this->created_at?->toISOString(),

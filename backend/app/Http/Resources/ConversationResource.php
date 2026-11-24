@@ -37,7 +37,7 @@ class ConversationResource extends JsonResource
         }
 
         return [
-            'id' => $this->id,
+            'id' => (int) $this->id,
             'type' => $this->type,
             'recipient' => $recipient,
             'last_message' => $this->whenLoaded('lastMessage', function () {
@@ -45,10 +45,10 @@ class ConversationResource extends JsonResource
                     return null;
                 }
                 return [
-                    'id' => $this->lastMessage->id,
-                    'sender_id' => $this->lastMessage->sender_id,
-                    'type' => $this->lastMessage->type,
-                    'body' => $this->lastMessage->body,
+                    'id' => (int) $this->lastMessage->id,
+                    'sender_id' => (int) $this->lastMessage->sender_id,
+                    'type' => (string) $this->lastMessage->type,
+                    'body' => (string) $this->lastMessage->body,
                     'created_at' => $this->lastMessage->created_at?->toISOString(),
                 ];
             }),

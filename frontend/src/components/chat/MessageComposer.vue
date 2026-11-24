@@ -17,7 +17,7 @@ const trimmedText = computed(() => text.value.trim())
 const charCount = computed(() => text.value.length)
 const isOverLimit = computed(() => charCount.value > 2000)
 const canSend = computed(() => {
-  return trimmedText.value.length > 0 && !isOverLimit.value && !props.isSending
+  return trimmedText.value.length > 0 && !isOverLimit.value
 })
 
 function handleKeydown(event: KeyboardEvent) {
@@ -36,11 +36,9 @@ function submitMessage() {
     localError.value = 'Nội dung tin nhắn không được vượt quá 2000 ký tự.'
     return
   }
-  if (props.isSending) {
-    return
-  }
 
   const messageToSend = text.value
+  text.value = ''
   emit('send', messageToSend)
 }
 
@@ -70,7 +68,6 @@ defineExpose({
         rows="1"
         placeholder="Nhập tin nhắn... (Nhấn Enter để gửi, Shift+Enter để xuống dòng)"
         class="composer-textarea"
-        :disabled="isSending"
         maxlength="2100"
         aria-label="Nội dung tin nhắn"
         @keydown="handleKeydown"

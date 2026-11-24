@@ -62,8 +62,8 @@ class CreatorComicController extends Controller
             $escaped = addcslashes($request->input('q'), '%_\\');
             $searchTerm = "%{$escaped}%";
             $query->where(function ($q) use ($searchTerm) {
-                $q->whereRaw("title LIKE ? ESCAPE '\\'", [$searchTerm])
-                  ->orWhereRaw("author_name LIKE ? ESCAPE '\\'", [$searchTerm]);
+                $q->whereRaw('title LIKE ? ESCAPE ?', [$searchTerm, '\\'])
+                  ->orWhereRaw('author_name LIKE ? ESCAPE ?', [$searchTerm, '\\']);
             });
         }
 

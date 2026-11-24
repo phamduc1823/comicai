@@ -4,6 +4,7 @@ import type { User, UserRole, LoginCredentials, RegisterData } from '@/types/aut
 import { AuthService } from '@/services/authService'
 import { disconnectEcho } from '@/services/echoService'
 import { useChatStore } from '@/stores/chat'
+import { useNotificationStore } from '@/stores/notification'
 import {
   isUnauthorizedError,
   isForbiddenError,
@@ -169,6 +170,7 @@ export const useAuthStore = defineStore('auth', () => {
       sessionStatus.value = 'guest'
       disconnectEcho()
       useChatStore().$reset()
+      useNotificationStore().$reset()
     } catch (err: unknown) {
       error.value = getErrorMessage(err, 'Đăng xuất không thành công. Vui lòng thử lại.')
       throw err

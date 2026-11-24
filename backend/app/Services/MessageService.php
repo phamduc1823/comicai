@@ -11,14 +11,17 @@ use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class MessageService
 {
     public function __construct(
-        protected ?ConversationService $conversationService = null
+        protected ?ConversationService $conversationService = null,
+        protected ?NotificationService $notificationService = null
     ) {
         $this->conversationService = $conversationService ?? app(ConversationService::class);
+        $this->notificationService = $notificationService ?? app(NotificationService::class);
     }
     /**
      * Get paginated messages for a conversation with cursor pagination.
@@ -228,5 +231,41 @@ class MessageService
             // Strictly rethrow any other database exception
             throw $e;
         }
+    }
+
+    /**
+     * Atomically create or find direct conversation and send the first message in a single transaction.
+     * Guarantees that if message creation or validation fails, NO empty conversation is left in the DB.
+     *
+     * @param array{body: string, type?: string, client_message_id?: string|null} $data
+     * @return array{message: Message, conversation: Conversation, status: int}
+     */
+    public function sendDirectMessage(User $user, int $recipientId, array $data): array
+    {
+        if ($user->id === $recipientId) {
+            throw ValidationException::withMessages([
+                'user_id' => 'Không thể tạo cuộc trò chuyện với chính mình.',
+            ]);
+        }
+
+        $recipient = User::find($recipientId);
+        if (! $recipient || ! $recipient->is_active) {
+            abort(404, 'Người nhận không tồn tại hoặc tài khoản đã bị vô hiệu hóa.');
+        }
+
+        return DB::transaction(function () use ($user, $recipientId, $data) {
+            // Find or create direct conversation atomically
+            $convResult = $this->conversationService->findOrCreateDirectConversation($user, $recipientId);
+            $conversation = $convResult['conversation'];
+
+            // Send message within the same transaction (sendMessage updates last_message atomically)
+            $msgResult = $this->sendMessage($user, $conversation, $data);
+
+            return [
+                'message' => $msgResult['message'],
+                'conversation' => $conversation,
+                'status' => $msgResult['status'],
+            ];
+        });
     }
 }

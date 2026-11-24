@@ -52,8 +52,8 @@ class AdminComicModerationController extends Controller
             $escaped = addcslashes($rawTerm, '%_\\');
             $searchTerm = "%{$escaped}%";
             $query->where(function ($q) use ($searchTerm) {
-                $q->whereRaw("title LIKE ? ESCAPE '\\'", [$searchTerm])
-                  ->orWhereRaw("author_name LIKE ? ESCAPE '\\'", [$searchTerm]);
+                $q->whereRaw('title LIKE ? ESCAPE ?', [$searchTerm, '\\'])
+                  ->orWhereRaw('author_name LIKE ? ESCAPE ?', [$searchTerm, '\\']);
             });
         }
 

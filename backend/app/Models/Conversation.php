@@ -35,6 +35,10 @@ class Conversation extends Model
     protected function casts(): array
     {
         return [
+            'id' => 'integer',
+            'user_one_id' => 'integer',
+            'user_two_id' => 'integer',
+            'last_message_id' => 'integer',
             'last_message_at' => 'datetime',
         ];
     }

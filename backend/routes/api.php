@@ -16,11 +16,13 @@ use App\Http\Controllers\Api\CreatorChapterController;
 use App\Http\Controllers\Api\CreatorComicController;
 use App\Http\Controllers\Api\GenreController;
 use App\Http\Controllers\Api\MessageController;
+use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\PostController;
 use App\Http\Controllers\Api\ReadingHistoryController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\TagController;
 use App\Http\Controllers\Api\UserLibraryController;
+use App\Http\Controllers\Api\UserProfileController;
 use App\Http\Controllers\Api\WalletController;
 use Illuminate\Support\Facades\Route;
 
@@ -49,6 +51,11 @@ Route::get('/comments', [CommentController::class, 'index']);
 Route::get('/posts/{id}/comments', [CommentController::class, 'indexForPost']);
 Route::get('/comics/{id}/comments', [CommentController::class, 'indexForComic']);
 Route::get('/chapters/{id}/comments', [CommentController::class, 'indexForChapter']);
+
+// User Public Profile endpoints (no authentication required)
+Route::get('/users/{id}', [UserProfileController::class, 'show']);
+Route::get('/users/{id}/comics', [UserProfileController::class, 'comics']);
+Route::get('/users/{id}/posts', [UserProfileController::class, 'posts']);
 
 Route::middleware(['guest.api', 'throttle:10,1,register'])->post('/register', [AuthController::class, 'register']);
 Route::middleware(['guest.api', 'throttle:5,1,login'])->post('/login', [AuthController::class, 'login']);
@@ -99,6 +106,16 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::post('/conversations/{conversation}/messages', [MessageController::class, 'store'])->name('messages.store')->middleware('throttle:60,1');
         Route::post('/conversations/{conversation}/read', [ConversationController::class, 'markAsRead'])->name('conversations.read')->middleware('throttle:60,1');
         Route::get('/unread-count', [ConversationController::class, 'unreadCount'])->name('unread-count');
+        Route::get('/direct/{userId}', [ConversationController::class, 'findDirect'])->name('direct.find');
+        Route::post('/direct/{userId}/messages', [MessageController::class, 'sendDirect'])->name('direct.messages')->middleware('throttle:60,1');
+    });
+
+    // Notification System APIs (CAI-NOTIF-01)
+    Route::prefix('notifications')->name('notifications.')->group(function () {
+        Route::get('/', [NotificationController::class, 'index'])->name('index');
+        Route::get('/unread-count', [NotificationController::class, 'unreadCount'])->name('unread-count');
+        Route::match(['post', 'patch'], '/read-all', [NotificationController::class, 'markAllAsRead'])->name('read-all')->middleware('throttle:60,1');
+        Route::match(['post', 'patch'], '/{id}/read', [NotificationController::class, 'markAsRead'])->name('read')->middleware('throttle:60,1');
     });
 
     // Coin Wallet & VIP Chapter Unlock (Phase 5)

@@ -85,9 +85,11 @@ function getRecipientInitials(): string {
 }
 
 const otherParticipantLastReadId = computed(() => {
-  if (!props.conversation || !props.currentUserId) return 0
-  const other = props.conversation.participants.find((p) => p.user_id !== props.currentUserId)
-  return other?.last_read_message_id || 0
+  if (!props.conversation || !props.currentUserId || !props.conversation.participants) return 0
+  const other = props.conversation.participants.find(
+    (p) => Number(p.user_id) !== Number(props.currentUserId)
+  )
+  return other?.last_read_message_id ? Number(other.last_read_message_id) : 0
 })
 </script>
 
@@ -177,14 +179,27 @@ const otherParticipantLastReadId = computed(() => {
         v-for="msg in messages"
         :key="msg.id"
         class="message-row"
-        :class="{ 'is-me': msg.sender_id === currentUserId }"
+        :class="{ 'is-me': Number(msg.sender_id) === Number(currentUserId) }"
       >
-        <div class="message-bubble" :class="{ 'is-me': msg.sender_id === currentUserId }">
+        <div
+          class="message-bubble"
+          :class="{
+            'is-me': Number(msg.sender_id) === Number(currentUserId),
+            'is-sending': msg.status === 'sending',
+            'is-failed': msg.status === 'failed',
+          }"
+        >
           <div class="message-body">{{ msg.body }}</div>
           <div class="message-meta">
-            <span class="message-time">{{ formatMessageTime(msg.created_at) }}</span>
+            <span v-if="msg.status === 'sending'" class="message-status-sending" title="Đang gửi...">
+              ⏱ Đang gửi
+            </span>
+            <span v-else-if="msg.status === 'failed'" class="message-status-failed" title="Gửi thất bại">
+              ⚠️ Lỗi gửi
+            </span>
+            <span v-else class="message-time">{{ formatMessageTime(msg.created_at) }}</span>
             <span
-              v-if="msg.sender_id === currentUserId && otherParticipantLastReadId >= msg.id"
+              v-if="(!msg.status || msg.status === 'sent') && Number(msg.sender_id) === Number(currentUserId) && Number(otherParticipantLastReadId) >= Number(msg.id)"
               class="message-read-receipt"
               title="Đã xem"
             >
@@ -429,6 +444,16 @@ const otherParticipantLastReadId = computed(() => {
   border-bottom-right-radius: 2px;
 }
 
+.message-bubble.is-sending {
+  opacity: 0.75;
+}
+
+.message-bubble.is-failed {
+  border: 1px solid var(--color-danger);
+  background-color: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
 .message-bubble:not(.is-me) {
   border-bottom-left-radius: 2px;
 }
@@ -449,6 +474,18 @@ const otherParticipantLastReadId = computed(() => {
 .message-time {
   font-size: 9px;
   opacity: 0.75;
+}
+
+.message-status-sending {
+  font-size: 9px;
+  opacity: 0.8;
+  letter-spacing: 0.2px;
+}
+
+.message-status-failed {
+  font-size: 9px;
+  color: var(--color-danger);
+  font-weight: var(--font-weight-bold);
 }
 
 .message-read-receipt {

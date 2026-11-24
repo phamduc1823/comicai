@@ -45,8 +45,9 @@ class AiSearchController extends Controller
             if ($clues !== null) {
                 // AI successfully extracted structured clues
                 $results = $this->searchService->searchWithClues($clues, $filters, $limit, $query);
-                $aiUsed = true;
-                $isFallback = false;
+                $isFallback = ! empty($results) && ! empty($results[0]['is_fallback']);
+                $aiUsed = ! $isFallback;
+                $fallbackNotice = $isFallback ? 'Dịch vụ AI phân tích ngữ nghĩa không khả dụng; đã tự động tìm kiếm theo manh mối cấu trúc an toàn.' : null;
             } else {
                 // Gemini query understanding failed, timed out, or unconfigured
                 // Try semantic/hybrid search directly with raw query if AI service is available

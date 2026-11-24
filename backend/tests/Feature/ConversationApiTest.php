@@ -42,7 +42,9 @@ class ConversationApiTest extends TestCase
         $conversation = Conversation::factory()
             ->betweenUsers($userA->id, $userB->id)
             ->withParticipants()
-            ->create();
+            ->create([
+                'last_message_at' => now(),
+            ]);
 
         $response = $this->actingAs($userA, 'sanctum')
             ->getJson('/api/chat/conversations')
@@ -115,7 +117,7 @@ class ConversationApiTest extends TestCase
         $this->assertEquals($convOld->id, $data[1]['id']);
     }
 
-    public function test_a5_conversations_without_messages_are_sorted_after_conversations_with_messages(): void
+    public function test_a5_conversations_without_messages_are_excluded_from_conversations_list(): void
     {
         $userA = User::factory()->create();
         $userB = User::factory()->create();
@@ -134,9 +136,8 @@ class ConversationApiTest extends TestCase
             ->assertOk();
 
         $data = $response->json('data');
-        $this->assertCount(2, $data);
+        $this->assertCount(1, $data);
         $this->assertEquals($convWithMsg->id, $data[0]['id']);
-        $this->assertEquals($convNoMsg->id, $data[1]['id']);
     }
 
     public function test_a6_pagination_without_params_uses_defaults(): void
@@ -519,7 +520,9 @@ class ConversationApiTest extends TestCase
         $conversation = Conversation::factory()
             ->betweenUsers($userA->id, $userB->id)
             ->withParticipants()
-            ->create();
+            ->create([
+                'last_message_at' => now(),
+            ]);
 
         $response = $this->actingAs($userA, 'sanctum')
             ->getJson("/api/chat/conversations/{$conversation->id}")
@@ -546,7 +549,9 @@ class ConversationApiTest extends TestCase
         $conversation = Conversation::factory()
             ->betweenUsers($userA->id, $userB->id)
             ->withParticipants()
-            ->create();
+            ->create([
+                'last_message_at' => now(),
+            ]);
 
         // Stranger tries to view A and B's conversation -> 403 Forbidden
         $this->actingAs($stranger, 'sanctum')
@@ -590,7 +595,9 @@ class ConversationApiTest extends TestCase
         $conversation = Conversation::factory()
             ->betweenUsers($userA->id, $userB->id)
             ->withParticipants()
-            ->create();
+            ->create([
+                'last_message_at' => now(),
+            ]);
 
         $response = $this->actingAs($userA, 'sanctum')
             ->getJson("/api/chat/conversations/{$conversation->id}")
@@ -610,7 +617,9 @@ class ConversationApiTest extends TestCase
         $conversation = Conversation::factory()
             ->betweenUsers($userA->id, $userB->id)
             ->withParticipants()
-            ->create();
+            ->create([
+                'last_message_at' => now(),
+            ]);
 
         Message::factory()->count(10)->forConversationAndSender($conversation, $userB)->create();
 
@@ -630,7 +639,9 @@ class ConversationApiTest extends TestCase
         $conversation = Conversation::factory()
             ->betweenUsers($userA->id, $userB->id)
             ->withParticipants()
-            ->create();
+            ->create([
+                'last_message_at' => now(),
+            ]);
 
         $response = $this->actingAs($userA, 'sanctum')
             ->getJson("/api/chat/conversations/{$conversation->id}")

@@ -88,46 +88,41 @@ class FallbackSearchService implements AiSearchServiceInterface
             });
         }
 
-        // 2. Keyword & Relational Search Condition
-        $escapedFullQuery = addcslashes($normalizedQuery, '%_\\');
-        $fullSearchTerm = "%{$escapedFullQuery}%";
+        // 2. Keyword & Relational Search Condition (deduplicated terms and consolidated subqueries)
+        $searchTerms = array_values(array_unique(array_filter(array_merge([$normalizedQuery], $keywords))));
 
-        $baseQuery->where(function (Builder $builder) use ($fullSearchTerm, $keywords) {
-            // Match full phrase on title, alternative_titles, author_name, description
-            $builder->whereRaw("title LIKE ? ESCAPE '\\'", [$fullSearchTerm])
-                ->orWhereRaw("alternative_titles LIKE ? ESCAPE '\\'", [$fullSearchTerm])
-                ->orWhereRaw("author_name LIKE ? ESCAPE '\\'", [$fullSearchTerm])
-                ->orWhereRaw("description LIKE ? ESCAPE '\\'", [$fullSearchTerm]);
+        $baseQuery->where(function (Builder $builder) use ($searchTerms) {
+            foreach ($searchTerms as $term) {
+                $escaped = addcslashes($term, '%_\\');
+                $like = "%{$escaped}%";
 
-            // Match full query on tags and genres
-            $builder->orWhereHas('tags', function (Builder $tq) use ($fullSearchTerm) {
-                $tq->whereRaw("name LIKE ? ESCAPE '\\'", [$fullSearchTerm])
-                    ->orWhereRaw("slug LIKE ? ESCAPE '\\'", [$fullSearchTerm]);
-            });
-
-            $builder->orWhereHas('genres', function (Builder $gq) use ($fullSearchTerm) {
-                $gq->whereRaw("name LIKE ? ESCAPE '\\'", [$fullSearchTerm])
-                    ->orWhereRaw("slug LIKE ? ESCAPE '\\'", [$fullSearchTerm]);
-            });
-
-            // Match individual keywords across fields
-            foreach ($keywords as $kw) {
-                $escapedKw = addcslashes($kw, '%_\\');
-                $kwTerm = "%{$escapedKw}%";
-
-                $builder->orWhereRaw("title LIKE ? ESCAPE '\\'", [$kwTerm])
-                    ->orWhereRaw("alternative_titles LIKE ? ESCAPE '\\'", [$kwTerm])
-                    ->orWhereRaw("author_name LIKE ? ESCAPE '\\'", [$kwTerm])
-                    ->orWhereRaw("description LIKE ? ESCAPE '\\'", [$kwTerm])
-                    ->orWhereHas('tags', function (Builder $tq) use ($kwTerm) {
-                        $tq->whereRaw("name LIKE ? ESCAPE '\\'", [$kwTerm])
-                            ->orWhereRaw("slug LIKE ? ESCAPE '\\'", [$kwTerm]);
-                    })
-                    ->orWhereHas('genres', function (Builder $gq) use ($kwTerm) {
-                        $gq->whereRaw("name LIKE ? ESCAPE '\\'", [$kwTerm])
-                            ->orWhereRaw("slug LIKE ? ESCAPE '\\'", [$kwTerm]);
-                    });
+                $builder->orWhereRaw('title LIKE ? ESCAPE ?', [$like, '\\'])
+                    ->orWhereRaw('alternative_titles LIKE ? ESCAPE ?', [$like, '\\'])
+                    ->orWhereRaw('author_name LIKE ? ESCAPE ?', [$like, '\\'])
+                    ->orWhereRaw('description LIKE ? ESCAPE ?', [$like, '\\']);
             }
+
+            $builder->orWhereHas('tags', function (Builder $tq) use ($searchTerms) {
+                $tq->where(function (Builder $inner) use ($searchTerms) {
+                    foreach ($searchTerms as $term) {
+                        $escaped = addcslashes($term, '%_\\');
+                        $like = "%{$escaped}%";
+                        $inner->orWhereRaw('name LIKE ? ESCAPE ?', [$like, '\\'])
+                            ->orWhereRaw('slug LIKE ? ESCAPE ?', [$like, '\\']);
+                    }
+                });
+            });
+
+            $builder->orWhereHas('genres', function (Builder $gq) use ($searchTerms) {
+                $gq->where(function (Builder $inner) use ($searchTerms) {
+                    foreach ($searchTerms as $term) {
+                        $escaped = addcslashes($term, '%_\\');
+                        $like = "%{$escaped}%";
+                        $inner->orWhereRaw('name LIKE ? ESCAPE ?', [$like, '\\'])
+                            ->orWhereRaw('slug LIKE ? ESCAPE ?', [$like, '\\']);
+                    }
+                });
+            });
         });
 
         // 3. Retrieve candidates
@@ -385,28 +380,49 @@ class FallbackSearchService implements AiSearchServiceInterface
             });
         }
 
-        // 2. Multi-field and relational search matching
+        // 2. Multi-field and relational search matching (deduplicated subqueries and safe ESCAPE)
         $baseQuery->where(function (Builder $builder) use ($allTerms) {
             foreach ($allTerms as $term) {
                 $escaped = addcslashes($term, '%_\\');
                 $like = "%{$escaped}%";
 
-                $builder->orWhereRaw("title LIKE ? ESCAPE '\\'", [$like])
-                    ->orWhereRaw("alternative_titles LIKE ? ESCAPE '\\'", [$like])
-                    ->orWhereRaw("description LIKE ? ESCAPE '\\'", [$like])
-                    ->orWhereHas('tags', function (Builder $tq) use ($like) {
-                        $tq->whereRaw("name LIKE ? ESCAPE '\\'", [$like])
-                            ->orWhereRaw("slug LIKE ? ESCAPE '\\'", [$like]);
-                    })
-                    ->orWhereHas('genres', function (Builder $gq) use ($like) {
-                        $gq->whereRaw("name LIKE ? ESCAPE '\\'", [$like])
-                            ->orWhereRaw("slug LIKE ? ESCAPE '\\'", [$like]);
-                    })
-                    ->orWhereHas('chapters', function (Builder $cq) use ($like) {
-                        $cq->where('status', 'published')
-                            ->whereRaw("title LIKE ? ESCAPE '\\'", [$like]);
-                    });
+                $builder->orWhereRaw('title LIKE ? ESCAPE ?', [$like, '\\'])
+                    ->orWhereRaw('alternative_titles LIKE ? ESCAPE ?', [$like, '\\'])
+                    ->orWhereRaw('description LIKE ? ESCAPE ?', [$like, '\\']);
             }
+
+            $builder->orWhereHas('tags', function (Builder $tq) use ($allTerms) {
+                $tq->where(function (Builder $inner) use ($allTerms) {
+                    foreach ($allTerms as $term) {
+                        $escaped = addcslashes($term, '%_\\');
+                        $like = "%{$escaped}%";
+                        $inner->orWhereRaw('name LIKE ? ESCAPE ?', [$like, '\\'])
+                            ->orWhereRaw('slug LIKE ? ESCAPE ?', [$like, '\\']);
+                    }
+                });
+            });
+
+            $builder->orWhereHas('genres', function (Builder $gq) use ($allTerms) {
+                $gq->where(function (Builder $inner) use ($allTerms) {
+                    foreach ($allTerms as $term) {
+                        $escaped = addcslashes($term, '%_\\');
+                        $like = "%{$escaped}%";
+                        $inner->orWhereRaw('name LIKE ? ESCAPE ?', [$like, '\\'])
+                            ->orWhereRaw('slug LIKE ? ESCAPE ?', [$like, '\\']);
+                    }
+                });
+            });
+
+            $builder->orWhereHas('chapters', function (Builder $cq) use ($allTerms) {
+                $cq->where('status', 'published')
+                    ->where(function (Builder $inner) use ($allTerms) {
+                        foreach ($allTerms as $term) {
+                            $escaped = addcslashes($term, '%_\\');
+                            $like = "%{$escaped}%";
+                            $inner->orWhereRaw('title LIKE ? ESCAPE ?', [$like, '\\']);
+                        }
+                    });
+            });
         });
 
         $candidates = $baseQuery->get();

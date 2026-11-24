@@ -8,6 +8,7 @@ use App\Http\Requests\UpdatePostRequest;
 use App\Http\Resources\PostResource;
 use App\Models\Like;
 use App\Models\Post;
+use App\Services\NotificationService;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
@@ -102,7 +103,7 @@ class PostController extends Controller
 
     /**
      * Store a newly created community post with optional image and comic reference.
-     * Strictly Creator and Admin only.
+     * Accessible by all active authenticated users (reader, creator, admin) via PostPolicy.
      */
     public function store(StorePostRequest $request): JsonResponse
     {
@@ -261,9 +262,10 @@ class PostController extends Controller
         $this->authorize('like', $post);
 
         $liked = false;
+        $createdNewLike = false;
 
         try {
-            DB::transaction(function () use ($user, $post, &$liked) {
+            DB::transaction(function () use ($user, $post, &$liked, &$createdNewLike) {
                 $existingLike = Like::where('user_id', $user->id)
                     ->where('likeable_type', 'post')
                     ->where('likeable_id', $post->id)
@@ -273,6 +275,7 @@ class PostController extends Controller
                 if ($existingLike) {
                     $existingLike->delete();
                     $liked = false;
+                    $createdNewLike = false;
                 } else {
                     Like::create([
                         'user_id' => $user->id,
@@ -280,14 +283,24 @@ class PostController extends Controller
                         'likeable_id' => $post->id,
                     ]);
                     $liked = true;
+                    $createdNewLike = true;
                 }
             });
         } catch (QueryException $e) {
             // Gracefully handle duplicate race conditions
+            $createdNewLike = false;
             $liked = Like::where('user_id', $user->id)
                 ->where('likeable_type', 'post')
                 ->where('likeable_id', $post->id)
                 ->exists();
+        }
+
+        if ($createdNewLike) {
+            try {
+                app(NotificationService::class)->notifyPostLiked($post, $user);
+            } catch (\Throwable $e) {
+                report($e);
+            }
         }
 
         $post->refresh();

@@ -21,6 +21,7 @@ export function useChatEcho(options?: {
 
   let currentSubscribedConversationId: number | null = null
   let currentSubscribedUserId: number | null = null
+  let currentUserOptions: import('@/services/echoService').UserChannelOptions | null = null
 
   // Cleanups
   let unsubscribeReconnect: (() => void) | null = null
@@ -30,15 +31,29 @@ export function useChatEcho(options?: {
    */
   function syncUserSubscription(userId: number | null | undefined): void {
     if (currentSubscribedUserId && currentSubscribedUserId !== userId) {
-      unsubscribeUserChannel(currentSubscribedUserId)
+      if (currentUserOptions) {
+        unsubscribeUserChannel(currentSubscribedUserId, currentUserOptions)
+        currentUserOptions = null
+      } else {
+        unsubscribeUserChannel(currentSubscribedUserId)
+      }
       currentSubscribedUserId = null
     }
 
     if (userId && currentSubscribedUserId !== userId) {
       currentSubscribedUserId = userId
-      subscribeUserChannel(userId, (payload) => {
-        chatStore.handleConversationUpdated(payload, userId)
-      })
+      currentUserOptions = {
+        onConversationUpdated: (payload) => {
+          chatStore.handleConversationUpdated(payload, userId)
+        },
+        onMessageSent: (payload) => {
+          chatStore.handleMessageSent(payload, userId)
+        },
+        onMessagesRead: (payload) => {
+          chatStore.handleMessagesRead(payload)
+        },
+      }
+      subscribeUserChannel(userId, currentUserOptions)
     }
   }
 
@@ -100,7 +115,12 @@ export function useChatEcho(options?: {
       currentSubscribedConversationId = null
     }
     if (currentSubscribedUserId) {
-      unsubscribeUserChannel(currentSubscribedUserId)
+      if (currentUserOptions) {
+        unsubscribeUserChannel(currentSubscribedUserId, currentUserOptions)
+        currentUserOptions = null
+      } else {
+        unsubscribeUserChannel(currentSubscribedUserId)
+      }
       currentSubscribedUserId = null
     }
     if (unsubscribeReconnect) {

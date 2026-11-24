@@ -677,7 +677,12 @@ onUnmounted(() => {
                   <strong class="meta-value">{{ comic.author_name }}</strong>
                 </div>
 
-                <div v-if="comic.creator" class="meta-item creator-item">
+                <RouterLink
+                  v-if="comic.creator"
+                  :to="'/users/' + comic.creator.id"
+                  class="meta-item creator-item creator-link"
+                  :aria-label="'Xem hồ sơ người đăng ' + comic.creator.name"
+                >
                   <div class="creator-avatar">
                     <img
                       v-if="comic.creator.avatar_url && !creatorAvatarError"
@@ -690,7 +695,7 @@ onUnmounted(() => {
                   </div>
                   <span class="meta-label">Người đăng:</span>
                   <span class="creator-name">{{ comic.creator.name }}</span>
-                </div>
+                </RouterLink>
               </div>
 
               <!-- Stat Pills -->
@@ -1482,6 +1487,21 @@ onUnmounted(() => {
   padding: 3px 8px 3px 4px;
   border-radius: var(--radius-full);
   border: 1px solid var(--color-border);
+}
+
+.creator-link {
+  text-decoration: none;
+  color: inherit;
+  transition: all var(--transition-fast, 0.15s ease);
+  cursor: pointer;
+}
+
+.creator-link:hover {
+  border-color: var(--color-primary);
+}
+
+.creator-link:hover .creator-name {
+  color: var(--color-primary);
 }
 
 .creator-avatar {

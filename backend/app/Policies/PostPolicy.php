@@ -25,29 +25,30 @@ class PostPolicy
 
     /**
      * Determine whether the user can create community posts.
-     * Allowed only for creators and administrators according to project role matrix.
+     * Allowed for all authenticated active users (reader, creator, admin) according to CAI-COMM-01.
+     * Inactive / banned accounts are strictly forbidden.
      */
     public function create(User $user): bool
     {
-        return in_array($user->role, ['creator', 'admin'], true);
+        return (bool) $user->is_active && in_array($user->role, ['reader', 'creator', 'admin'], true);
     }
 
     /**
      * Determine whether the user can update the post.
-     * Strictly author-only. Even administrators cannot edit another user's post content.
+     * Strictly author-only and active. Even administrators cannot edit another user's post content.
      */
     public function update(User $user, Post $post): bool
     {
-        return (int) $user->id === (int) $post->user_id;
+        return (bool) $user->is_active && (int) $user->id === (int) $post->user_id;
     }
 
     /**
      * Determine whether the user can delete the post.
-     * Author can delete their own post; Admins can delete any post for moderation.
+     * Active author can delete their own post; Active Admins can delete any post for moderation.
      */
     public function delete(User $user, Post $post): bool
     {
-        return (int) $user->id === (int) $post->user_id || $user->role === 'admin';
+        return (bool) $user->is_active && ((int) $user->id === (int) $post->user_id || $user->role === 'admin');
     }
 
     /**
@@ -56,6 +57,6 @@ class PostPolicy
      */
     public function like(User $user, Post $post): bool
     {
-        return true;
+        return (bool) $user->is_active;
     }
 }

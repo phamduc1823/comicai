@@ -67,4 +67,24 @@ class MessageController extends Controller
             ->response()
             ->setStatusCode($result['status']);
     }
+
+    /**
+     * Send a direct message to a user.
+     * Atomically creates the conversation if this is the first message (lazy conversation flow).
+     */
+    public function sendDirect(StoreMessageRequest $request, int $userId): JsonResponse
+    {
+        $this->authorize('create', Conversation::class);
+
+        $result = $this->messageService->sendDirectMessage(
+            $request->user(),
+            $userId,
+            $request->validated()
+        );
+
+        return response()->json([
+            'data' => new MessageResource($result['message']),
+            'conversation' => new \App\Http\Resources\ConversationResource($result['conversation']),
+        ], $result['status']);
+    }
 }

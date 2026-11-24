@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import type { Conversation } from '@/types/chat'
-import { getEchoConnectionStatus } from '@/services/echoService'
+import { echoConnectionStatus } from '@/services/echoService'
 
 const props = defineProps<{
   conversations: Conversation[]
@@ -19,10 +19,13 @@ const searchQuery = ref('')
 
 const filteredConversations = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
+  const validList = props.conversations.filter(
+    (conv) => conv.id !== 0 && (conv.last_message !== null || conv.last_message_at !== null)
+  )
   if (!query) {
-    return props.conversations
+    return validList
   }
-  return props.conversations.filter((conv) => {
+  return validList.filter((conv) => {
     const recipientName = conv.recipient?.name?.toLowerCase() || ''
     const lastMsgBody = conv.last_message?.body?.toLowerCase() || ''
     return recipientName.includes(query) || lastMsgBody.includes(query)
@@ -58,7 +61,7 @@ function getRecipientInitials(conv: Conversation): string {
   return name ? name.charAt(0).toUpperCase() : 'U'
 }
 
-const connectionStatus = computed(() => getEchoConnectionStatus())
+const connectionStatus = computed(() => echoConnectionStatus.value)
 </script>
 
 <template>

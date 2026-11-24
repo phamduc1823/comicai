@@ -28,6 +28,30 @@ export class ChatService {
   }
 
   /**
+   * Find existing direct conversation without creating a new record.
+   * Returns conversation if exists, or data: null with recipient info if not.
+   */
+  static async findDirectConversation(userId: number): Promise<{ data: Conversation | null; recipient?: import('@/types/chat').ChatUserSummary }> {
+    const response = await httpClient.get<{ data: Conversation | null; recipient?: import('@/types/chat').ChatUserSummary }>(`/chat/direct/${userId}`)
+    return response.data
+  }
+
+  /**
+   * Send a direct message to a user.
+   * Atomically creates the conversation if this is the first message (lazy conversation flow).
+   */
+  static async sendDirectMessage(
+    userId: number,
+    payload: { body: string; type?: string; client_message_id?: string | null }
+  ): Promise<{ data: Message; conversation: Conversation }> {
+    const response = await httpClient.post<{ data: Message; conversation: Conversation }>(
+      `/chat/direct/${userId}/messages`,
+      payload
+    )
+    return response.data
+  }
+
+  /**
    * Get single conversation detail by ID.
    */
   static async getConversation(conversationId: number): Promise<Conversation> {

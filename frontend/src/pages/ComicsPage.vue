@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ComicCard from '@/components/ComicCard.vue'
 import { CatalogService } from '@/services/catalogService'
@@ -38,8 +38,7 @@ const selectedStatus = ref<ComicStatus | ''>('')
 const selectedSort = ref<ComicSortOption>('latest')
 const currentPage = ref(1)
 
-// Search debounce timer & race-condition guard
-let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+// Race-condition guard
 let latestRequestId = 0
 
 // Sort options definition
@@ -325,34 +324,25 @@ function applyFilters(options: { resetPage?: boolean } = {}) {
 }
 
 /**
- * Handle debounced search input typing.
- */
-function onSearchInput() {
-  if (searchDebounceTimer) {
-    clearTimeout(searchDebounceTimer)
-  }
-  searchDebounceTimer = setTimeout(() => {
-    applyFilters({ resetPage: true })
-  }, 400)
-}
-
-/**
- * Instant search on Enter key press or Search button click.
+ * Manual search triggered ONLY by Enter key or Search button click.
  */
 function submitSearch() {
-  if (searchDebounceTimer) {
-    clearTimeout(searchDebounceTimer)
-    searchDebounceTimer = null
+  if (isLoading.value) return
+
+  const cleanQuery = searchInput.value.trim()
+  if (!cleanQuery) {
+    if (searchMode.value === 'ai') return
+    if (!selectedGenre.value && !selectedTag.value && !selectedStatus.value && selectedSort.value === 'latest' && comics.value.length > 0) return
   }
+
   applyFilters({ resetPage: true })
 }
 
 /**
- * Clear search input and re-apply filters.
+ * Clear search input only, without triggering search query.
  */
 function clearSearch() {
   searchInput.value = ''
-  submitSearch()
 }
 
 /**
@@ -400,13 +390,6 @@ onMounted(async () => {
   await loadFilterOptions()
   fetchComics()
 })
-
-onUnmounted(() => {
-  if (searchDebounceTimer) {
-    clearTimeout(searchDebounceTimer)
-    searchDebounceTimer = null
-  }
-})
 </script>
 
 <template>
@@ -440,12 +423,14 @@ onUnmounted(() => {
             <span class="search-icon" aria-hidden="true">{{ searchMode === 'ai' ? '✨' : '🔍' }}</span>
             <input
               v-model="searchInput"
-              type="search"
+              type="text"
+              role="searchbox"
+              autocomplete="off"
               class="search-input"
               :placeholder="searchMode === 'ai' ? 'Mô tả truyện theo trí nhớ của bạn (nhân vật, sự kiện, chi tiết)...' : 'Tìm theo tên truyện, tác giả, tựa đề khác...'"
               aria-label="Tìm kiếm truyện tranh"
               :maxlength="searchMode === 'ai' ? 300 : 100"
-              @input="onSearchInput"
+              @keydown.enter="submitSearch"
             />
             <button
               v-if="searchInput"
@@ -461,6 +446,7 @@ onUnmounted(() => {
               class="btn-search-submit"
               :class="{ 'btn-search-ai': searchMode === 'ai' }"
               aria-label="Thực hiện tìm kiếm"
+              :disabled="isLoading"
             >
               {{ searchMode === 'ai' ? 'Tìm bằng AI' : 'Tìm kiếm' }}
             </button>
@@ -833,6 +819,15 @@ onUnmounted(() => {
   padding: var(--spacing-xs) 0;
 }
 
+.search-input::-webkit-search-decoration,
+.search-input::-webkit-search-cancel-button,
+.search-input::-webkit-search-results-button,
+.search-input::-webkit-search-results-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
+}
+
 .search-input::placeholder {
   color: var(--color-text-muted);
 }
@@ -860,6 +855,11 @@ onUnmounted(() => {
   border-radius: var(--radius-full);
   transition: all var(--transition-fast);
   flex-shrink: 0;
+}
+
+.btn-search-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .btn-search-submit:hover {

@@ -4,29 +4,38 @@ import { useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useChatStore } from '@/stores/chat'
 import { useWalletStore } from '@/stores/wallet'
+import { useNotificationStore } from '@/stores/notification'
 import { useChatEcho } from '@/composables/useChatEcho'
+import { useNotificationRealtime } from '@/composables/useNotificationRealtime'
 import { getErrorMessage } from '@/services/httpClient'
+import NotificationBell from '@/components/NotificationBell.vue'
 import logoUrl from '@/assets/logo.png'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const chatStore = useChatStore()
 const walletStore = useWalletStore()
+const notificationStore = useNotificationStore()
 
 // Subscribe user channel for real-time unread badge updates across entire app
 useChatEcho({
   userRef: toRef(authStore, 'user'),
 })
 
-// Fetch initial unread count & wallet when user becomes authenticated
+// Subscribe user channel for real-time notifications & fallback sync
+useNotificationRealtime(toRef(authStore, 'user'))
+
+// Fetch initial unread count, notification count & wallet when user becomes authenticated
 watch(
   () => authStore.isAuthenticated,
   (isAuth) => {
     if (isAuth) {
       chatStore.fetchUnreadCount()
+      notificationStore.fetchUnreadCount()
       walletStore.fetchWallet(true)
     } else {
       walletStore.reset()
+      notificationStore.$reset()
     }
   },
   { immediate: true }
@@ -61,6 +70,7 @@ async function handleLogout() {
   try {
     await authStore.logout()
     walletStore.reset()
+    notificationStore.$reset()
     await router.push('/')
   } catch (err: unknown) {
     // On failure, preserve authenticated state and display error
@@ -83,7 +93,6 @@ async function handleLogout() {
 
         <nav class="nav-links" aria-label="Điều hướng chính">
           <RouterLink to="/" class="nav-link" active-class="active">Trang chủ</RouterLink>
-          <RouterLink to="/comics" class="nav-link" active-class="active">Danh mục</RouterLink>
           <RouterLink to="/community" class="nav-link" active-class="active">Cộng đồng</RouterLink>
           <RouterLink to="/library" class="nav-link" active-class="active">Tủ sách</RouterLink>
           <RouterLink
@@ -138,6 +147,9 @@ async function handleLogout() {
 
         <!-- Authenticated User -->
         <div v-else class="auth-user-menu">
+          <!-- Notification Bell -->
+          <NotificationBell />
+
           <!-- Coin Wallet Badge Shortcut -->
           <RouterLink
             to="/wallet"

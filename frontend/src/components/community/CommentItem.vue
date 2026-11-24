@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { RouterLink } from 'vue-router'
 import type { CommentItemData } from '@/types/community'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import ReportModal from '@/components/common/ReportModal.vue'
@@ -154,17 +155,23 @@ function handleConfirmDelete() {
     <div class="comment-main-row">
       <!-- Author Avatar Column -->
       <div class="comment-avatar-col">
-        <div class="comment-avatar" :title="comment.user.name" aria-hidden="true">
-          <img
-            v-if="comment.user.avatar_url && !avatarLoadError"
-            :src="comment.user.avatar_url"
-            :alt="comment.user.name"
-            class="avatar-img"
-            loading="lazy"
-            @error="avatarLoadError = true"
-          />
-          <span v-else class="avatar-initial">{{ userInitial }}</span>
-        </div>
+        <RouterLink
+          :to="'/users/' + comment.user.id"
+          class="comment-avatar-link"
+          :aria-label="'Xem hồ sơ của ' + comment.user.name"
+        >
+          <div class="comment-avatar" :title="comment.user.name" aria-hidden="true">
+            <img
+              v-if="comment.user.avatar_url && !avatarLoadError"
+              :src="comment.user.avatar_url"
+              :alt="comment.user.name"
+              class="avatar-img"
+              loading="lazy"
+              @error="avatarLoadError = true"
+            />
+            <span v-else class="avatar-initial">{{ userInitial }}</span>
+          </div>
+        </RouterLink>
       </div>
 
       <!-- Comment Content & Meta Column -->
@@ -172,7 +179,12 @@ function handleConfirmDelete() {
         <div class="comment-bubble">
           <!-- Author Info Row -->
           <div class="author-info-row">
-            <span class="author-name">{{ comment.user.name }}</span>
+            <RouterLink
+              :to="'/users/' + comment.user.id"
+              class="comment-author-name-link"
+            >
+              <span class="author-name">{{ comment.user.name }}</span>
+            </RouterLink>
 
             <!-- Role Badges -->
             <span
@@ -364,6 +376,23 @@ function handleConfirmDelete() {
 .comment-avatar-col {
   flex-shrink: 0;
   padding-top: 2px;
+}
+
+.comment-avatar-link {
+  text-decoration: none;
+  display: block;
+  border-radius: var(--radius-full);
+}
+
+.comment-author-name-link {
+  text-decoration: none;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+}
+
+.comment-author-name-link:hover .author-name {
+  color: var(--color-primary);
 }
 
 .comment-avatar {
