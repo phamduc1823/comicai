@@ -20,6 +20,7 @@ const userInitials = computed(() => {
 
 const currentSectionTitle = computed(() => {
   if (route.path.includes('/chapters')) return 'Kiểm duyệt chương Webtoon'
+  if (route.path.includes('/banners')) return 'Quản lý Banner Slider Trang Chủ'
   return 'Kiểm duyệt truyện tranh'
 })
 
@@ -92,6 +93,19 @@ function closeMobileSidebar() {
           <span class="nav-icon" aria-hidden="true">📑</span>
           <span class="nav-label">Duyệt chương Webtoon</span>
         </RouterLink>
+
+        <div class="nav-section-label nav-section-divider">Quản lý nội dung</div>
+
+        <RouterLink
+          to="/admin/banners"
+          class="sidebar-nav-item"
+          :class="{ active: route.path.startsWith('/admin/banners') }"
+          @click="closeMobileSidebar"
+        >
+          <span class="nav-icon" aria-hidden="true">🖼️</span>
+          <span class="nav-label">Quản lý Banner Slider</span>
+        </RouterLink>
+
 
         <div class="nav-section-label nav-section-divider">Hệ thống</div>
 

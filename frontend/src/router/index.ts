@@ -190,6 +190,16 @@ const router = createRouter({
         roles: ['admin'],
       },
     },
+    {
+      path: '/admin/banners',
+      name: 'admin-banners',
+      component: () => import('@/pages/admin/AdminBannersPage.vue'),
+      meta: {
+        title: 'Quản lý Banner Slider — BlueToon Admin',
+        requiresAuth: true,
+        roles: ['admin'],
+      },
+    },
   ],
 })
 

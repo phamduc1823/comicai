@@ -153,3 +153,36 @@ export interface ModerationActionResponse<T> {
   message: string
   data: T
 }
+
+/**
+ * Admin Banner entity matching backend AdminBannerResource.
+ */
+export interface AdminBanner {
+  id: number
+  comic_id: number
+  title_override: string | null
+  desktop_banner_path: string
+  desktop_banner_url: string | null
+  mobile_banner_path: string | null
+  mobile_banner_url: string | null
+  sort_order: number
+  is_active: boolean
+  created_at: string | null
+  updated_at: string | null
+  comic?: {
+    id: number
+    title: string
+    slug: string
+    approval_status: string
+    cover_path: string | null
+    cover_url: string | null
+  }
+}
+
+export interface ReorderBannersPayload {
+  orders: {
+    id: number
+    sort_order: number
+  }[]
+}
+

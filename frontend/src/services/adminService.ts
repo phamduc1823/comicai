@@ -9,6 +9,8 @@ import type {
   RejectComicChangesPayload,
   RejectChapterPayload,
   ModerationActionResponse,
+  AdminBanner,
+  ReorderBannersPayload,
 } from '@/types/admin'
 
 export class AdminService {
@@ -138,4 +140,92 @@ export class AdminService {
     )
     return response.data
   }
+
+  /**
+   * Fetch all banners for admin management.
+   * GET /api/admin/banners
+   */
+  static async getBanners(): Promise<{ data: AdminBanner[] }> {
+    const response = await httpClient.get<{ data: AdminBanner[] }>('/admin/banners')
+    return response.data
+  }
+
+  /**
+   * Create a new homepage slider banner.
+   * POST /api/admin/banners
+   */
+  static async createBanner(
+    formData: FormData
+  ): Promise<{ status: string; message: string; data: AdminBanner }> {
+    const response = await httpClient.post<{ status: string; message: string; data: AdminBanner }>(
+      '/admin/banners',
+      formData,
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      }
+    )
+    return response.data
+  }
+
+  /**
+   * Update an existing banner (supports multipart upload via POST /api/admin/banners/{id}).
+   */
+  static async updateBanner(
+    id: number | string,
+    formData: FormData
+  ): Promise<{ status: string; message: string; data: AdminBanner }> {
+    const encodedId = encodeURIComponent(String(id))
+    const response = await httpClient.post<{ status: string; message: string; data: AdminBanner }>(
+      `/admin/banners/${encodedId}`,
+      formData,
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      }
+    )
+    return response.data
+  }
+
+  /**
+   * Delete a banner.
+   * DELETE /api/admin/banners/{id}
+   */
+  static async deleteBanner(id: number | string): Promise<{ status: string; message: string }> {
+    const encodedId = encodeURIComponent(String(id))
+    const response = await httpClient.delete<{ status: string; message: string }>(
+      `/admin/banners/${encodedId}`
+    )
+    return response.data
+  }
+
+  /**
+   * Toggle or update active status of a banner.
+   * PATCH /api/admin/banners/{id}/status
+   */
+  static async toggleBannerStatus(
+    id: number | string,
+    isActive?: boolean
+  ): Promise<{ status: string; message: string; data: AdminBanner }> {
+    const encodedId = encodeURIComponent(String(id))
+    const payload = isActive !== undefined ? { is_active: isActive } : {}
+    const response = await httpClient.patch<{ status: string; message: string; data: AdminBanner }>(
+      `/admin/banners/${encodedId}/status`,
+      payload
+    )
+    return response.data
+  }
+
+  /**
+   * Batch update banner sort orders.
+   * PATCH /api/admin/banners/reorder
+   */
+  static async reorderBanners(
+    payload: ReorderBannersPayload
+  ): Promise<{ status: string; message: string }> {
+    const response = await httpClient.patch<{ status: string; message: string }>(
+      '/admin/banners/reorder',
+      payload
+    )
+    return response.data
+  }
+
 }

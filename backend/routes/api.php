@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AdminBannerController;
 use App\Http\Controllers\Api\AdminChapterModerationController;
 use App\Http\Controllers\Api\AdminComicModerationController;
 use App\Http\Controllers\Api\AdminVipModerationController;
@@ -159,5 +160,16 @@ Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/repor
 Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/vip')->group(function () {
     Route::post('/refund', [AdminVipModerationController::class, 'refund']);
 });
+
+// Admin Banner Management endpoints (strictly admin only)
+Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/banners')->group(function () {
+    Route::get('/', [AdminBannerController::class, 'index']);
+    Route::post('/', [AdminBannerController::class, 'store']);
+    Route::patch('/reorder', [AdminBannerController::class, 'reorder']);
+    Route::match(['put', 'post'], '/{banner}', [AdminBannerController::class, 'update']);
+    Route::delete('/{banner}', [AdminBannerController::class, 'destroy']);
+    Route::patch('/{banner}/status', [AdminBannerController::class, 'toggleStatus']);
+});
+
 
 
