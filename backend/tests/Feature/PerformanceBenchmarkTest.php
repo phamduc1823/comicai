@@ -211,8 +211,19 @@ class PerformanceBenchmarkTest extends TestCase
             $response->assertJsonCount(3, 'data.images');
         });
 
-        // 5 queries: comic lookup, chapter lookup, images eager-load, prev chapter, next chapter
-        $this->assertLessThanOrEqual(5, count($queries), "Reader API query count must be <= 5 queries");
+        // Verification on first read (view recorded):
+        // 5 SELECT queries (comic, chapter, images eager-load, prev chapter, next chapter)
+        // 2 atomic UPDATE queries (chapter views_count, comic views_count)
+        $selectQueries = array_filter($queries, fn ($q) => str_starts_with(strtolower(trim($q['query'])), 'select'));
+        $this->assertLessThanOrEqual(5, count($selectQueries), 'Reader API read queries must be <= 5 queries (no N+1)');
+        $this->assertLessThanOrEqual(7, count($queries), 'Reader API total query count with atomic view increment must be <= 7 queries');
+
+        // Verification on repeat read within 30-min debounce window:
+        // Cache prevents duplicate writes, so query count drops to strictly <= 5 queries
+        $queriesDebounced = $this->captureQueries(function () {
+            $this->getJson('/api/comics/sieu-pham-truyen-1/chapters/2')->assertOk();
+        });
+        $this->assertLessThanOrEqual(5, count($queriesDebounced), 'Debounced Reader API query count must be strictly <= 5 queries');
     }
 
     /**

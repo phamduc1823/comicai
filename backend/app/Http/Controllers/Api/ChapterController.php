@@ -150,6 +150,20 @@ class ChapterController extends Controller
             }
         }
 
+        // Increment view count when readable chapter is opened (with 30-min debounce per user/IP)
+        if ($vipContext['is_unlocked']) {
+            $userId = $request->user('sanctum')?->id ?? $request->user()?->id;
+            $ip = $request->ip() ?: '127.0.0.1';
+            $identifier = $userId ? "u_{$userId}" : 'ip_'.md5($ip);
+            $viewKey = "viewed_chapter_{$chapter->id}_{$identifier}";
+
+            if (\Illuminate\Support\Facades\Cache::add($viewKey, true, now()->addMinutes(30))) {
+                Chapter::where('id', $chapter->id)->increment('views_count');
+                Comic::where('id', $comic->id)->increment('views_count');
+                $chapter->views_count++;
+            }
+        }
+
         return new ChapterReaderResource($chapter, $navigation, $vipContext);
     }
 }
