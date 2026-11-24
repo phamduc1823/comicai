@@ -23,6 +23,10 @@ export const useChatStore = defineStore('chat', () => {
     next_cursor: null,
   })
   const totalUnreadCount = ref<number>(0)
+  const isChatViewActive = ref<boolean>(false)
+  const isWindowVisible = ref<boolean>(
+    typeof document !== 'undefined' ? document.visibilityState === 'visible' : true
+  )
   const isLoadingConversations = ref<boolean>(false)
   const isLoadingMessages = ref<boolean>(false)
   const isSendingMessage = ref<boolean>(false)
@@ -202,6 +206,61 @@ export const useChatStore = defineStore('chat', () => {
       has_more: false,
       next_cursor: null,
     }
+  }
+
+  /**
+   * Set chat view active status (true when ChatPage.vue is mounted and visible).
+   */
+  function setChatViewActive(active: boolean): void {
+    isChatViewActive.value = active
+  }
+
+  /**
+   * Set browser window / tab visibility status.
+   */
+  function setWindowVisible(visible: boolean): void {
+    isWindowVisible.value = visible
+  }
+
+  /**
+   * Check whether a conversation is genuinely being actively viewed by the user right now.
+   * Requires:
+   * 1. User is on /chat view (isChatViewActive === true).
+   * 2. Browser tab is visible (not hidden/minimized).
+   * 3. activeConversation is non-null and matching conversationId.
+   */
+  function isConversationActivelyViewed(conversationId: number): boolean {
+    if (!isChatViewActive.value) {
+      return false
+    }
+    if (!isWindowVisible.value) {
+      return false
+    }
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      return false
+    }
+    if (!activeConversation.value) {
+      return false
+    }
+    return Number(activeConversation.value.id) === Number(conversationId)
+  }
+
+  /**
+   * Check if an incoming message can transition an open draft conversation with this recipient.
+   */
+  function canTransitionDraft(senderId: number): boolean {
+    if (!isChatViewActive.value || !isWindowVisible.value) {
+      return false
+    }
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      return false
+    }
+    return (
+      activeConversation.value !== null &&
+      Number(activeConversation.value.id) === 0 &&
+      activeConversation.value.recipient !== null &&
+      Number(activeConversation.value.recipient?.id) === Number(senderId)
+    )
   }
 
   /**
@@ -554,7 +613,6 @@ export const useChatStore = defineStore('chat', () => {
     // Normalize payload in case of nested message wrapper
     const rawMessage: Message = payload.message || payload
     const convId = Number(rawMessage.conversation_id)
-    const activeId = activeConversation.value ? Number(activeConversation.value.id) : null
 
     const message: Message = {
       ...rawMessage,
@@ -565,15 +623,9 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     // 1. If the message belongs to the active conversation (or transitions an open draft with this recipient)
-    let isViewing = activeConversation.value && Number(activeConversation.value.id) === convId
-    if (
-      !isViewing &&
-      activeConversation.value &&
-      Number(activeConversation.value.id) === 0 &&
-      activeConversation.value.recipient &&
-      Number(activeConversation.value.recipient.id) === Number(rawMessage.sender_id)
-    ) {
-      activeConversation.value.id = convId
+    let isViewing = isConversationActivelyViewed(convId)
+    if (!isViewing && canTransitionDraft(Number(rawMessage.sender_id))) {
+      activeConversation.value!.id = convId
       isViewing = true
     }
 
@@ -593,7 +645,7 @@ export const useChatStore = defineStore('chat', () => {
         activeMessages.value = [...activeMessages.value, message]
         activeMessages.value.sort((a, b) => Number(a.id) - Number(b.id))
 
-        // If message is from another user and conversation is open, mark as read
+        // If message is from another user and conversation is actively open, mark as read
         if (currentUserId && Number(message.sender_id) !== Number(currentUserId)) {
           markAsRead(Number(message.id), currentUserId)
         }
@@ -623,8 +675,8 @@ export const useChatStore = defineStore('chat', () => {
       }
       conv.last_message_at = message.created_at
 
-      // If not currently viewing, increment unread count
-      if (activeId !== convId) {
+      // If not currently actively viewing, increment unread count
+      if (!isViewing) {
         if (currentUserId && Number(message.sender_id) !== Number(currentUserId)) {
           conv.unread_count = (conv.unread_count || 0) + 1
           updateComputedTotalUnread()
@@ -634,7 +686,7 @@ export const useChatStore = defineStore('chat', () => {
       sortConversations()
     } else {
       // Conversation not yet loaded in list; fetch authoritative list & unread count
-      if (activeId !== convId && currentUserId && Number(message.sender_id) !== Number(currentUserId)) {
+      if (!isViewing && currentUserId && Number(message.sender_id) !== Number(currentUserId)) {
         totalUnreadCount.value = Math.max(0, totalUnreadCount.value + 1)
       }
       fetchConversations()
@@ -652,19 +704,16 @@ export const useChatStore = defineStore('chat', () => {
 
     const convId = Number(payload.conversation_id)
     const conv = conversations.value.find((c) => Number(c.id) === convId)
-    let isViewing = activeConversation.value && Number(activeConversation.value.id) === convId
+    let isViewing = isConversationActivelyViewed(convId)
     if (
       !isViewing &&
-      activeConversation.value &&
-      Number(activeConversation.value.id) === 0 &&
-      activeConversation.value.recipient &&
-      Number(activeConversation.value.recipient.id) === Number(payload.last_message.sender_id)
+      canTransitionDraft(Number(payload.last_message.sender_id))
     ) {
-      activeConversation.value.id = convId
+      activeConversation.value!.id = convId
       isViewing = true
     }
 
-    // 1. If user is currently looking at this conversation, append/reconcile the message into activeMessages!
+    // 1. If user is currently actively viewing this conversation, append/reconcile the message into activeMessages!
     if (isViewing) {
       const rawMsg = payload.last_message
       const message: Message = {
@@ -803,6 +852,7 @@ export const useChatStore = defineStore('chat', () => {
       next_cursor: null,
     }
     totalUnreadCount.value = 0
+    isChatViewActive.value = false
     isLoadingConversations.value = false
     isLoadingMessages.value = false
     isSendingMessage.value = false
@@ -816,6 +866,8 @@ export const useChatStore = defineStore('chat', () => {
     activeMessages,
     messagesPagination,
     totalUnreadCount,
+    isChatViewActive,
+    isWindowVisible,
     isLoadingConversations,
     isLoadingMessages,
     isSendingMessage,
@@ -830,6 +882,9 @@ export const useChatStore = defineStore('chat', () => {
     openConversation,
     openDraftConversation,
     closeConversation,
+    setChatViewActive,
+    setWindowVisible,
+    isConversationActivelyViewed,
     loadOlderMessages,
     sendMessage,
     markAsRead,

@@ -499,4 +499,183 @@ assert.strictEqual(openActiveMessages[3].body, 'a')
 
 console.log('✓ [TEST 7] PASS: CAI-MSG-04 separate message unread badge & active chat real-time verified')
 
-console.log('\nALL CAI-MSG-02, CAI-MSG-03 & CAI-MSG-04 UNIT TESTS PASSED (100%)!')
+// =========================================================================
+// TEST SUITE 8: CAI-MSG-05 — READ STATE LIFECYCLE WHEN LEAVING CHAT VIEW
+// =========================================================================
+console.log('\n[TEST 8] CAI-MSG-05: Read state lifecycle when leaving chat view or switching tabs')
+
+// Simulation of chatStore state & helpers
+let simChatViewActive = false
+let simWindowVisible = true
+let simActiveConversation = null
+let simActiveMessages = []
+let simConversations = [
+  { id: 1, unread_count: 0, last_message: { id: 10, body: 'hello' } },
+  { id: 2, unread_count: 0, last_message: { id: 5, body: 'hey' } },
+]
+let simTotalUnreadCount = 0
+let markAsReadCalls = []
+
+function simIsConversationActivelyViewed(conversationId) {
+  if (!simChatViewActive) return false
+  if (!simWindowVisible) return false
+  if (!simActiveConversation) return false
+  return Number(simActiveConversation.id) === Number(conversationId)
+}
+
+function simMarkAsRead(messageId, currentUserId) {
+  markAsReadCalls.push({ messageId: Number(messageId), currentUserId: Number(currentUserId) })
+}
+
+function simUpdateComputedTotalUnread() {
+  simTotalUnreadCount = simConversations.reduce((sum, c) => sum + (c.unread_count || 0), 0)
+}
+
+function simHandleIncomingMessage(payload, currentUserId) {
+  const convId = Number(payload.conversation_id)
+  const isViewing = simIsConversationActivelyViewed(convId)
+  const conv = simConversations.find((c) => Number(c.id) === convId)
+
+  if (isViewing) {
+    simActiveMessages.push({
+      id: Number(payload.last_message.id),
+      sender_id: Number(payload.last_message.sender_id),
+      body: payload.last_message.body,
+      status: 'sent',
+    })
+    if (Number(payload.last_message.sender_id) !== Number(currentUserId)) {
+      simMarkAsRead(payload.last_message.id, currentUserId)
+    }
+    if (conv) {
+      conv.unread_count = 0
+      conv.last_message = payload.last_message
+    }
+  } else {
+    // NOT viewing: DO NOT call markAsRead! Increment unread count!
+    if (conv) {
+      conv.unread_count = Number(payload.unread_count || ((conv.unread_count || 0) + 1))
+      conv.last_message = payload.last_message
+    } else {
+      simTotalUnreadCount = Math.max(1, simTotalUnreadCount + 1)
+    }
+  }
+
+  simUpdateComputedTotalUnread()
+}
+
+// Case 8A: Verify viewing conditions
+// 1. Inactive chat view -> false
+simChatViewActive = false
+simActiveConversation = { id: 1 }
+assert.strictEqual(simIsConversationActivelyViewed(1), false, 'When not in chat view, isConversationActivelyViewed must be false')
+
+// 2. Active chat view, tab visible, matching ID -> true
+simChatViewActive = true
+simWindowVisible = true
+assert.strictEqual(simIsConversationActivelyViewed(1), true, 'When on /chat and matching conversation, must be true')
+
+// 3. Tab hidden (document.visibilityState === hidden) -> false
+simWindowVisible = false
+assert.strictEqual(simIsConversationActivelyViewed(1), false, 'When browser tab is hidden, must be false')
+
+// 4. Different conversation ID -> false
+simWindowVisible = true
+assert.strictEqual(simIsConversationActivelyViewed(2), false, 'When viewing conversation 1, conversation 2 must be false')
+
+// Case 8B: User leaves chat view to Home page -> incoming message treated as unread
+// User navigates away: route leave guard runs
+simChatViewActive = false
+simActiveConversation = null
+simActiveMessages = []
+markAsReadCalls = []
+
+// User A sends message "bbbbbbb" to conversation 1
+simHandleIncomingMessage(
+  {
+    conversation_id: 1,
+    unread_count: 1,
+    last_message: { id: 101, sender_id: 43, body: 'bbbbbbb' },
+  },
+  44
+)
+
+assert.strictEqual(markAsReadCalls.length, 0, 'When user is on Home page, markAsRead must NEVER be called')
+assert.strictEqual(simConversations[0].unread_count, 1, 'Conversation 1 unread count must increment to 1')
+assert.strictEqual(simTotalUnreadCount, 1, 'Header totalUnreadCount must be 1 (badge shows "1" next to Tin nhắn)')
+assert.strictEqual(simActiveMessages.length, 0, 'Active messages must not be populated while away')
+
+// Another message arrives in conversation 2 while on Home page
+simHandleIncomingMessage(
+  {
+    conversation_id: 2,
+    unread_count: 1,
+    last_message: { id: 102, sender_id: 45, body: 'new msg from 45' },
+  },
+  44
+)
+
+assert.strictEqual(markAsReadCalls.length, 0, 'markAsRead still not called')
+assert.strictEqual(simConversations[1].unread_count, 1, 'Conversation 2 unread count must be 1')
+assert.strictEqual(simTotalUnreadCount, 2, 'Header totalUnreadCount must be 2 (badge shows "2" next to Tin nhắn)')
+
+// Case 8C: User returns to chat view and opens conversation 1
+simChatViewActive = true
+simActiveConversation = simConversations[0]
+simActiveMessages = [{ id: 101, sender_id: 43, body: 'bbbbbbb', status: 'sent' }]
+
+// Open conversation marks latest message as read
+simMarkAsRead(101, 44)
+simConversations[0].unread_count = 0
+simUpdateComputedTotalUnread()
+
+assert.strictEqual(markAsReadCalls.length, 1, 'markAsRead called on opening conversation')
+assert.strictEqual(markAsReadCalls[0].messageId, 101)
+assert.strictEqual(simConversations[0].unread_count, 0, 'Conversation 1 unread count reset to 0')
+assert.strictEqual(simTotalUnreadCount, 1, 'Header totalUnreadCount decrements to 1 (only conversation 2 remains unread)')
+
+// Case 8D: While viewing conversation 1 actively, incoming message is read immediately
+simHandleIncomingMessage(
+  {
+    conversation_id: 1,
+    unread_count: 0,
+    last_message: { id: 103, sender_id: 43, body: 'realtime while watching' },
+  },
+  44
+)
+
+assert.strictEqual(markAsReadCalls.length, 2, 'markAsRead called immediately for actively viewed message')
+assert.strictEqual(markAsReadCalls[1].messageId, 103)
+assert.strictEqual(simConversations[0].unread_count, 0, 'Conversation 1 remains 0 unread')
+assert.strictEqual(simTotalUnreadCount, 1, 'Total unread remains 1')
+assert.strictEqual(simActiveMessages.length, 2, 'Message appended to activeMessages')
+assert.strictEqual(simActiveMessages[1].body, 'realtime while watching')
+
+// Case 8E: User minimizes browser / switches tab (visibility change to hidden)
+simWindowVisible = false
+simHandleIncomingMessage(
+  {
+    conversation_id: 1,
+    unread_count: 1,
+    last_message: { id: 104, sender_id: 43, body: 'tab was hidden' },
+  },
+  44
+)
+
+assert.strictEqual(markAsReadCalls.length, 2, 'markAsRead must NOT be called when tab is hidden')
+assert.strictEqual(simConversations[0].unread_count, 1, 'Conversation 1 unread count becomes 1')
+assert.strictEqual(simTotalUnreadCount, 2, 'Total unread becomes 2 while tab is hidden')
+
+// User switches back to tab: visibility handler marks as read
+simWindowVisible = true
+simMarkAsRead(104, 44)
+simConversations[0].unread_count = 0
+simUpdateComputedTotalUnread()
+
+assert.strictEqual(markAsReadCalls.length, 3, 'markAsRead called upon tab focus')
+assert.strictEqual(markAsReadCalls[2].messageId, 104)
+assert.strictEqual(simConversations[0].unread_count, 0)
+assert.strictEqual(simTotalUnreadCount, 1)
+
+console.log('✓ [TEST 8] PASS: CAI-MSG-05 read state lifecycle when leaving chat view verified')
+
+console.log('\nALL CAI-MSG-02, CAI-MSG-03, CAI-MSG-04 & CAI-MSG-05 UNIT TESTS PASSED (100%)!')

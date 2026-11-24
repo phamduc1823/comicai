@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, toRef, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, computed, onMounted, onUnmounted, toRef, watch } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useChatStore } from '@/stores/chat'
 import { ChatService } from '@/services/chatService'
@@ -26,7 +26,26 @@ useChatEcho({
   conversationIdRef: computed(() => (chatStore.activeConversation ? Number(chatStore.activeConversation.id) : null)),
 })
 
+function handleVisibilityChange() {
+  const visible = typeof document !== 'undefined' ? document.visibilityState === 'visible' : true
+  chatStore.setWindowVisible(visible)
+  if (visible && chatStore.activeConversation && authStore.user?.id) {
+    // If returning to tab and actively viewing a conversation, mark latest message as read if unread
+    if (chatStore.activeMessages.length > 0) {
+      const latestMsg = chatStore.activeMessages[chatStore.activeMessages.length - 1]
+      if (latestMsg && Number(latestMsg.sender_id) !== Number(authStore.user.id)) {
+        chatStore.markAsRead(Number(latestMsg.id), authStore.user.id)
+      }
+    }
+  }
+}
+
 onMounted(async () => {
+  chatStore.setChatViewActive(true)
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+  }
+
   // Fetch initial conversations list & unread count
   await Promise.all([
     chatStore.fetchConversations(),
@@ -35,6 +54,19 @@ onMounted(async () => {
 
   // Handle query params if navigated with ?user_id=... or ?conversation_id=...
   await handleRouteParams()
+})
+
+onBeforeRouteLeave(() => {
+  chatStore.setChatViewActive(false)
+  chatStore.closeConversation()
+})
+
+onUnmounted(() => {
+  chatStore.setChatViewActive(false)
+  chatStore.closeConversation()
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }
 })
 
 // Watch query params in case user navigates to /chat with different query
