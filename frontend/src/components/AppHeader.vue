@@ -1,15 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, toRef, watch } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
-import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { useChatStore } from '@/stores/chat'
 import { useWalletStore } from '@/stores/wallet'
 import { useChatEcho } from '@/composables/useChatEcho'
 import { getErrorMessage } from '@/services/httpClient'
+import logoUrl from '@/assets/logo.png'
 
 const router = useRouter()
-const appStore = useAppStore()
 const authStore = useAuthStore()
 const chatStore = useChatStore()
 const walletStore = useWalletStore()
@@ -74,36 +73,36 @@ async function handleLogout() {
 
 <template>
   <header class="app-header">
-    <div class="container header-container">
-      <div class="brand">
-        <RouterLink to="/" class="brand-link" aria-label="BlueToon - Trang chủ">
-          <span class="brand-logo" aria-hidden="true">📖</span>
-          <span class="brand-name">{{ appStore.appInfo.name }}</span>
-        </RouterLink>
-        <span class="brand-badge">Scaffold v{{ appStore.appInfo.version }}</span>
-      </div>
+    <div class="header-container">
+      <div class="header-main-nav">
+        <div class="brand">
+          <RouterLink to="/" class="brand-link" aria-label="BlueToon - Trang chủ">
+            <img :src="logoUrl" alt="BlueToon" class="brand-logo-img" />
+          </RouterLink>
+        </div>
 
-      <nav class="nav-links" aria-label="Điều hướng chính">
-        <RouterLink to="/" class="nav-link" active-class="active">Trang chủ</RouterLink>
-        <RouterLink to="/comics" class="nav-link" active-class="active">Danh mục</RouterLink>
-        <RouterLink to="/community" class="nav-link" active-class="active">Cộng đồng</RouterLink>
-        <RouterLink to="/library" class="nav-link" active-class="active">Tủ sách</RouterLink>
-        <RouterLink
-          v-if="authStore.isAuthenticated"
-          to="/chat"
-          class="nav-link nav-link-chat"
-          active-class="active"
-        >
-          <span>Tin nhắn</span>
-          <span
-            v-if="chatStore.totalUnreadCount > 0"
-            class="header-unread-badge"
-            :aria-label="chatStore.totalUnreadCount + ' tin nhắn chưa đọc'"
+        <nav class="nav-links" aria-label="Điều hướng chính">
+          <RouterLink to="/" class="nav-link" active-class="active">Trang chủ</RouterLink>
+          <RouterLink to="/comics" class="nav-link" active-class="active">Danh mục</RouterLink>
+          <RouterLink to="/community" class="nav-link" active-class="active">Cộng đồng</RouterLink>
+          <RouterLink to="/library" class="nav-link" active-class="active">Tủ sách</RouterLink>
+          <RouterLink
+            v-if="authStore.isAuthenticated"
+            to="/chat"
+            class="nav-link nav-link-chat"
+            active-class="active"
           >
-            {{ chatStore.totalUnreadCount > 99 ? '99+' : chatStore.totalUnreadCount }}
-          </span>
-        </RouterLink>
-      </nav>
+            <span>Tin nhắn</span>
+            <span
+              v-if="chatStore.totalUnreadCount > 0"
+              class="header-unread-badge"
+              :aria-label="chatStore.totalUnreadCount + ' tin nhắn chưa đọc'"
+            >
+              {{ chatStore.totalUnreadCount > 99 ? '99+' : chatStore.totalUnreadCount }}
+            </span>
+          </RouterLink>
+        </nav>
+      </div>
 
       <!-- Auth section -->
       <div class="header-auth">
@@ -129,10 +128,10 @@ async function handleLogout() {
 
         <!-- Unauthenticated Guest -->
         <div v-else-if="!authStore.isAuthenticated" class="auth-guest-actions">
-          <RouterLink to="/login" class="nav-link login-link">
+          <RouterLink to="/login" class="btn-auth login-link">
             Đăng nhập
           </RouterLink>
-          <RouterLink to="/register" class="btn-register">
+          <RouterLink to="/register" class="btn-auth btn-register">
             Đăng ký
           </RouterLink>
         </div>
@@ -226,85 +225,129 @@ async function handleLogout() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 64px;
-  gap: var(--spacing-md);
+  height: 68px;
+  width: 100%;
+  max-width: 1440px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--spacing-lg);
+  padding-right: var(--spacing-lg);
+  gap: var(--spacing-lg);
+}
+
+.header-main-nav {
+  display: flex;
+  align-items: center;
+  gap: 36px;
+  flex-shrink: 0;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
   flex-shrink: 0;
 }
 
 .brand-link {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
   text-decoration: none;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
 }
 
-.brand-logo {
-  font-size: var(--font-size-2xl);
-  line-height: 1;
+.brand-link:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
 }
 
-.brand-name {
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-bold);
-  color: var(--color-primary);
-  letter-spacing: -0.02em;
-}
-
-.brand-badge {
-  font-size: var(--font-size-xs);
-  padding: 2px 8px;
-  background-color: var(--color-primary-soft);
-  color: var(--color-primary);
-  border-radius: var(--radius-full);
-  border: 1px solid var(--color-border-subtle);
-  font-weight: var(--font-weight-medium);
+.brand-logo-img {
+  height: 38px;
+  width: auto;
+  max-width: 140px;
+  object-fit: contain;
+  display: block;
 }
 
 .nav-links {
   display: flex;
-  gap: var(--spacing-sm);
+  align-items: center;
+  gap: 12px;
 }
 
 .nav-link {
-  font-size: var(--font-size-sm);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-size: 20px;
   font-weight: var(--font-weight-medium);
   color: var(--color-text-secondary);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border-radius: var(--radius-sm);
-  transition: all var(--transition-fast);
+  padding: 6px 14px;
+  border-radius: var(--radius-md);
+  background-color: transparent;
+  transition: color var(--transition-fast);
   text-decoration: none;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  position: relative;
 }
 
-.nav-link:hover,
+/* Hover Underline Animation */
+.nav-link::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 3px;
+  background-color: var(--color-primary);
+  border-radius: var(--radius-full);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+
+.nav-link:hover::after {
+  transform: scaleX(1);
+}
+
+.nav-link:hover {
+  color: var(--color-primary);
+  background-color: transparent;
+}
+
 .nav-link.active {
   color: var(--color-primary);
-  background-color: var(--color-primary-soft);
+  background-color: transparent;
+}
+
+.nav-link.active::after {
+  transform: scaleX(1);
+}
+
+/* Reduced motion preference support */
+@media (prefers-reduced-motion: reduce) {
+  .nav-link::after {
+    transition: none;
+  }
 }
 
 .nav-link-chat {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  position: relative;
 }
 
 .header-unread-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 16px;
-  height: 16px;
+  min-width: 18px;
+  height: 18px;
   padding: 0 4px;
   border-radius: var(--radius-full);
   background-color: var(--color-primary);
   color: var(--color-text-inverse);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: var(--font-weight-bold);
   line-height: 1;
 }
@@ -315,6 +358,7 @@ async function handleLogout() {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
+  flex-shrink: 0;
 }
 
 .auth-skeleton-placeholder {
@@ -331,24 +375,59 @@ async function handleLogout() {
   gap: var(--spacing-xs);
 }
 
-.login-link {
-  color: var(--color-text-primary);
-}
-
-.btn-register {
+/* Shared Typography, Alignment and Sizing for Auth Buttons */
+.btn-auth {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 36px;
-  padding: 0 var(--spacing-md);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-size: 20px;
+  font-weight: var(--font-weight-medium);
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+  border-radius: var(--radius-md);
+  height: 38px;
+  padding: 0 16px;
+  transition: all var(--transition-fast);
+  box-sizing: border-box;
+}
+
+.login-link {
+  color: var(--color-text-secondary);
+  background-color: transparent;
+  position: relative;
+}
+
+/* Underline Animation on Login Button */
+.login-link::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 3px;
+  background-color: var(--color-primary);
+  border-radius: var(--radius-full);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+
+.login-link:hover::after {
+  transform: scaleX(1);
+}
+
+.login-link:hover {
+  color: var(--color-primary);
+  background-color: transparent;
+}
+
+.btn-register {
   background-color: var(--color-primary);
   color: var(--color-text-inverse);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
-  border-radius: var(--radius-md);
-  text-decoration: none;
   box-shadow: var(--shadow-sm);
-  transition: all var(--transition-fast);
 }
 
 .btn-register:hover {
@@ -587,17 +666,90 @@ async function handleLogout() {
   padding: 0 2px;
 }
 
-@media (max-width: 640px) {
-  .brand-badge {
+@media (max-width: 1100px) {
+  .header-container {
+    padding-left: var(--spacing-md);
+    padding-right: var(--spacing-md);
+    gap: var(--spacing-md);
+  }
+
+  .header-main-nav {
+    gap: 20px;
+  }
+
+  .nav-link {
+    padding: 6px 10px;
+    font-size: 17px;
+  }
+
+  .btn-auth {
+    font-size: 17px;
+    height: 36px;
+    padding: 0 12px;
+  }
+}
+
+@media (max-width: 840px) {
+  .header-container {
+    height: 62px;
+    padding-left: var(--spacing-sm);
+    padding-right: var(--spacing-sm);
+    gap: var(--spacing-sm);
+  }
+
+  .header-main-nav {
+    gap: 12px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .brand-logo-img {
+    height: 32px;
+    max-width: 105px;
+  }
+
+  .nav-links {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding-bottom: 2px;
+    gap: 6px;
+  }
+
+  .nav-links::-webkit-scrollbar {
     display: none;
   }
+
+  .nav-link {
+    padding: 4px 8px;
+    font-size: 15px;
+  }
+
+  .btn-auth {
+    font-size: 15px;
+    height: 32px;
+    padding: 0 10px;
+  }
+}
+
+@media (max-width: 640px) {
   .user-details {
     display: none;
   }
+
   .user-profile-badge {
     padding: 0;
     border: none;
     background: transparent;
+  }
+
+  .btn-studio-shortcut,
+  .btn-admin-shortcut {
+    padding: 0 8px;
+  }
+
+  .btn-logout {
+    padding: 0 8px;
   }
 }
 </style>
