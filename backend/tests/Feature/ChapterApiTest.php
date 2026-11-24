@@ -196,7 +196,7 @@ class ChapterApiTest extends TestCase
         $this->assertSame('1.00', $data['chapter_number']);
         $this->assertSame('Chương 1: Khởi đầu', $data['title']);
         $this->assertSame('chuong-1', $data['slug']);
-        $this->assertSame(1500, $data['views_count']);
+        $this->assertSame(1501, $data['views_count']);
 
         // Comic summary
         $this->assertSame($comic->id, $data['comic']['id']);
@@ -437,20 +437,33 @@ class ChapterApiTest extends TestCase
     }
 
     /**
-     * 16. Test neither index nor show endpoints increment views_count.
+     * 16. Test index does not increment views_count, while show auto-increments with debounce.
      */
-    public function test_chapter_api_does_not_auto_increment_views_count(): void
+    public function test_chapter_api_auto_increments_views_count_on_show_with_debounce(): void
     {
         $comic = $this->createComic(['slug' => 'comic-views']);
         $chapter = $this->createChapter($comic, ['chapter_number' => '1.00', 'views_count' => 100]);
 
+        // Index does not increment
         $this->getJson('/api/comics/comic-views/chapters')->assertOk();
         $chapter->refresh();
+        $comic->refresh();
         $this->assertSame(100, $chapter->views_count);
+        $this->assertSame(0, $comic->views_count);
 
+        // First show increments chapter and comic views
         $this->getJson('/api/comics/comic-views/chapters/1.00')->assertOk();
         $chapter->refresh();
-        $this->assertSame(100, $chapter->views_count);
+        $comic->refresh();
+        $this->assertSame(101, $chapter->views_count);
+        $this->assertSame(1, $comic->views_count);
+
+        // Second show within debounce window does not duplicate increment
+        $this->getJson('/api/comics/comic-views/chapters/1.00')->assertOk();
+        $chapter->refresh();
+        $comic->refresh();
+        $this->assertSame(101, $chapter->views_count);
+        $this->assertSame(1, $comic->views_count);
     }
 
     /**
