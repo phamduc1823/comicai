@@ -103,6 +103,10 @@ function resolveNotificationRoute(item: NotificationItem): string | { path: stri
     return item.target.url || `/comics/${item.target.id}`
   }
 
+  if (item.target?.type === 'creator_application') {
+    return item.target.url || '/become-creator'
+  }
+
   const rawUrl = item.target?.url
   if (typeof rawUrl === 'string' && rawUrl.startsWith('/') && !rawUrl.startsWith('//')) {
     return rawUrl
@@ -277,10 +281,14 @@ function handleLoadMore() {
                 <span v-else class="item-avatar-initial">{{ getActorInitial(item) }}</span>
                 <span
                   class="item-type-icon"
-                  :class="item.type === 'post_liked' ? 'type-like' : 'type-message'"
+                  :class="{
+                    'type-like': item.type === 'post_liked',
+                    'type-creator': item.type === 'creator_application_approved' || item.type === 'creator_application_rejected',
+                    'type-message': item.type !== 'post_liked' && item.type !== 'creator_application_approved' && item.type !== 'creator_application_rejected'
+                  }"
                   aria-hidden="true"
                 >
-                  {{ item.type === 'post_liked' ? '❤️' : '💬' }}
+                  {{ item.type === 'post_liked' ? '❤️' : (item.type === 'creator_application_approved' ? '✍️' : (item.type === 'creator_application_rejected' ? '❌' : '💬')) }}
                 </span>
               </div>
 

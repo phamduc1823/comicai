@@ -201,8 +201,15 @@ export const useNotificationStore = defineStore('notification', () => {
 
     const incoming = payload.notification
 
-    // Strictly isolate to bell notification types (Post Likes and Comments only - CAI-MSG-04)
-    const bellTypes = ['post_liked', 'post_commented', 'comic_commented', 'chapter_commented']
+    // Strictly isolate to bell notification types (Likes, Comments, and Creator application status)
+    const bellTypes = [
+      'post_liked',
+      'post_commented',
+      'comic_commented',
+      'chapter_commented',
+      'creator_application_approved',
+      'creator_application_rejected',
+    ]
     if (incoming.type && !bellTypes.includes(incoming.type)) {
       return
     }

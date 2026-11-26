@@ -754,4 +754,205 @@ class NotificationApiTest extends TestCase
             return $event->recipientId === $creator->id && $event->unreadCount === 1;
         });
     }
+
+    /**
+     * Test 22: Creator application approval creates notification and broadcasts to applicant.
+     */
+    public function test_22_creator_application_approval_creates_notification_and_broadcasts(): void
+    {
+        Event::fake([NotificationCreated::class]);
+
+        $admin = User::factory()->create(['name' => 'Admin Reviewer', 'role' => 'admin', 'is_active' => true]);
+        $applicant = User::factory()->create(['name' => 'Applicant Reader', 'role' => 'reader', 'is_active' => true, 'email_verified_at' => now()]);
+
+        // Submit creator application
+        $app = \App\Models\CreatorApplication::create([
+            'application_code' => 'CA-000001',
+            'user_id' => $applicant->id,
+            'pen_name' => 'Họa Sĩ Mộng Mơ',
+            'pen_name_canonical' => 'hoa si mong mo',
+            'bio' => 'Họa sĩ truyện tranh độc lập với 3 năm kinh nghiệm',
+            'reason' => 'Mong muốn xuất bản truyện tranh dài kỳ trên ComicAI',
+            'sample_works' => ['https://portfolio.test/work1'],
+            'status' => 'pending',
+            'version' => 1,
+        ]);
+
+        \App\Models\PenNameReservation::create([
+            'pen_name_canonical' => 'hoa si mong mo',
+            'pen_name' => 'Họa Sĩ Mộng Mơ',
+            'reserved_by_user_id' => $applicant->id,
+            'reservation_type' => 'application',
+            'application_id' => $app->id,
+        ]);
+
+        // Admin approves application
+        $response = $this->actingAs($admin, 'sanctum')
+            ->postJson("/api/admin/creator-applications/{$app->id}/approve");
+
+        $response->assertStatus(200);
+
+        // Verify notification was created for applicant
+        $this->assertEquals(1, $applicant->notifications()->count());
+        $notif = $applicant->notifications()->first();
+        $this->assertNotNull($notif);
+        $this->assertEquals(\App\Notifications\CreatorApplicationApprovedNotification::class, $notif->type);
+        $this->assertEquals('creator_application_approved', $notif->data['kind']);
+        $this->assertEquals('Hồ sơ Creator đã được duyệt', $notif->data['title']);
+        $this->assertStringContainsString('Chúc mừng! Hồ sơ đăng ký Creator của bạn đã được duyệt', $notif->data['body']);
+        $this->assertEquals('/become-creator', $notif->data['target']['url']);
+        $this->assertEquals($admin->id, $notif->data['actor']['id']);
+
+        // Verify realtime broadcast
+        Event::assertDispatched(NotificationCreated::class, function (NotificationCreated $event) use ($applicant) {
+            return $event->recipientId === $applicant->id
+                && $event->unreadCount === 1
+                && $event->notificationPayload['type'] === 'creator_application_approved'
+                && $event->notificationPayload['title'] === 'Hồ sơ Creator đã được duyệt';
+        });
+
+        // Verify applicant can fetch notification from API
+        $listRes = $this->actingAs($applicant, 'sanctum')
+            ->getJson('/api/notifications');
+
+        $listRes->assertStatus(200);
+        $listRes->assertJsonPath('meta.unread_count', 1);
+        $listRes->assertJsonPath('data.0.type', 'creator_application_approved');
+        $listRes->assertJsonPath('data.0.title', 'Hồ sơ Creator đã được duyệt');
+        $listRes->assertJsonPath('data.0.is_read', false);
+
+        // Verify unread count endpoint
+        $countRes = $this->actingAs($applicant, 'sanctum')
+            ->getJson('/api/notifications/unread-count');
+        $countRes->assertStatus(200);
+        $countRes->assertJsonPath('data.unread_count', 1);
+    }
+
+    /**
+     * Test 23: Creator application approval does not create duplicate notifications on repeated review attempt.
+     */
+    public function test_23_creator_application_approval_no_duplicate_notifications(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin', 'is_active' => true]);
+        $applicant = User::factory()->create(['role' => 'reader', 'is_active' => true, 'email_verified_at' => now()]);
+
+        $app = \App\Models\CreatorApplication::create([
+            'application_code' => 'CA-000002',
+            'user_id' => $applicant->id,
+            'pen_name' => 'Bút Danh Unique',
+            'pen_name_canonical' => 'but danh unique',
+            'bio' => 'Bio test',
+            'reason' => 'Reason test',
+            'status' => 'pending',
+            'version' => 1,
+        ]);
+
+        \App\Models\PenNameReservation::create([
+            'pen_name_canonical' => 'but danh unique',
+            'pen_name' => 'Bút Danh Unique',
+            'reserved_by_user_id' => $applicant->id,
+            'reservation_type' => 'application',
+            'application_id' => $app->id,
+        ]);
+
+        // First approval
+        $this->actingAs($admin, 'sanctum')
+            ->postJson("/api/admin/creator-applications/{$app->id}/approve")
+            ->assertStatus(200);
+
+        $this->assertEquals(1, $applicant->notifications()->count());
+
+        // Second approval attempt fails with 422
+        $this->actingAs($admin, 'sanctum')
+            ->postJson("/api/admin/creator-applications/{$app->id}/approve")
+            ->assertStatus(422);
+
+        // Notifications count remains strictly 1
+        $this->assertEquals(1, $applicant->notifications()->count());
+    }
+
+    /**
+     * Test 24: Applicant can mark creator application approval notification as read.
+     */
+    public function test_24_applicant_can_mark_creator_application_notification_as_read(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin', 'is_active' => true]);
+        $applicant = User::factory()->create(['role' => 'reader', 'is_active' => true, 'email_verified_at' => now()]);
+
+        $app = \App\Models\CreatorApplication::create([
+            'application_code' => 'CA-000003',
+            'user_id' => $applicant->id,
+            'pen_name' => 'Bút Danh Mark Read',
+            'pen_name_canonical' => 'but danh mark read',
+            'bio' => 'Bio test',
+            'reason' => 'Reason test',
+            'status' => 'pending',
+            'version' => 1,
+        ]);
+
+        \App\Models\PenNameReservation::create([
+            'pen_name_canonical' => 'but danh mark read',
+            'pen_name' => 'Bút Danh Mark Read',
+            'reserved_by_user_id' => $applicant->id,
+            'reservation_type' => 'application',
+            'application_id' => $app->id,
+        ]);
+
+        $this->actingAs($admin, 'sanctum')
+            ->postJson("/api/admin/creator-applications/{$app->id}/approve")
+            ->assertStatus(200);
+
+        $notif = $applicant->notifications()->first();
+        $this->assertNotNull($notif);
+
+        // Applicant marks as read
+        $markRes = $this->actingAs($applicant, 'sanctum')
+            ->patchJson("/api/notifications/{$notif->id}/read");
+
+        $markRes->assertStatus(200);
+        $markRes->assertJsonPath('data.is_read', true);
+        $markRes->assertJsonPath('meta.unread_count', 0);
+
+        $this->assertEquals(0, $applicant->unreadNotifications()->whereIn('type', NotificationService::BELL_NOTIFICATION_TYPES)->count());
+    }
+
+    /**
+     * Test 25: Other users do not receive notification for another user's approved creator application.
+     */
+    public function test_25_other_users_do_not_receive_creator_application_notification(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin', 'is_active' => true]);
+        $applicant = User::factory()->create(['role' => 'reader', 'is_active' => true, 'email_verified_at' => now()]);
+        $innocentUser = User::factory()->create(['role' => 'reader', 'is_active' => true]);
+
+        $app = \App\Models\CreatorApplication::create([
+            'application_code' => 'CA-000004',
+            'user_id' => $applicant->id,
+            'pen_name' => 'Bút Danh Isolated',
+            'pen_name_canonical' => 'but danh isolated',
+            'bio' => 'Bio test',
+            'reason' => 'Reason test',
+            'status' => 'pending',
+            'version' => 1,
+        ]);
+
+        \App\Models\PenNameReservation::create([
+            'pen_name_canonical' => 'but danh isolated',
+            'pen_name' => 'Bút Danh Isolated',
+            'reserved_by_user_id' => $applicant->id,
+            'reservation_type' => 'application',
+            'application_id' => $app->id,
+        ]);
+
+        $this->actingAs($admin, 'sanctum')
+            ->postJson("/api/admin/creator-applications/{$app->id}/approve")
+            ->assertStatus(200);
+
+        // Applicant has 1 notification
+        $this->assertEquals(1, $applicant->notifications()->count());
+
+        // Innocent user has 0 notifications
+        $this->assertEquals(0, $innocentUser->notifications()->count());
+        $this->assertEquals(0, $innocentUser->unreadNotifications()->whereIn('type', NotificationService::BELL_NOTIFICATION_TYPES)->count());
+    }
 }

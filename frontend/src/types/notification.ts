@@ -3,7 +3,13 @@
  * Implemented in CAI-NOTIF-01
  */
 
-export type NotificationKind = 'new_message' | 'post_liked' | string
+export type NotificationKind =
+  | 'new_message'
+  | 'post_liked'
+  | 'post_commented'
+  | 'creator_application_approved'
+  | 'creator_application_rejected'
+  | string
 
 export interface NotificationActor {
   id: number | null
@@ -14,7 +20,7 @@ export interface NotificationActor {
 }
 
 export interface NotificationTarget {
-  type: 'conversation' | 'post' | string
+  type: 'conversation' | 'post' | 'creator_application' | string
   id: number | null
   message_id?: number | null
   url: string

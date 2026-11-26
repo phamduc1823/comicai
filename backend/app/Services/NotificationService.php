@@ -7,9 +7,12 @@ use App\Models\Chapter;
 use App\Models\Comic;
 use App\Models\Comment;
 use App\Models\Conversation;
+use App\Models\CreatorApplication;
 use App\Models\Message;
 use App\Models\Post;
 use App\Models\User;
+use App\Notifications\CreatorApplicationApprovedNotification;
+use App\Notifications\CreatorApplicationRejectedNotification;
 use App\Notifications\NewMessageNotification;
 use App\Notifications\PostCommentedNotification;
 use App\Notifications\PostLikedNotification;
@@ -21,12 +24,15 @@ use Illuminate\Support\Str;
 class NotificationService
 {
     /**
-     * Notification types strictly displayed in the Notification Bell (Likes and Comments only).
+     * Notification types strictly displayed in the Notification Bell.
      * CAI-MSG-04: Excludes message and chat notifications from the bell.
+     * CAI-CREATOR-01: Includes creator application approval and rejection.
      */
     public const BELL_NOTIFICATION_TYPES = [
         PostLikedNotification::class,
         PostCommentedNotification::class,
+        CreatorApplicationApprovedNotification::class,
+        CreatorApplicationRejectedNotification::class,
     ];
     /**
      * Format a DatabaseNotification model into a strictly whitelisted API/broadcast payload.
@@ -265,6 +271,66 @@ class NotificationService
                 }
             }
         }
+    }
+
+    /**
+     * Notify applicant that their creator application has been approved.
+     * Enforces deduplication by application ID and version.
+     */
+    public function notifyCreatorApplicationApproved(CreatorApplication $application, User $admin): ?DatabaseNotification
+    {
+        $applicant = User::where('id', $application->user_id)
+            ->where('is_active', true)
+            ->first();
+
+        if (! $applicant) {
+            return null;
+        }
+
+        $notificationObj = new CreatorApplicationApprovedNotification($application, $admin);
+
+        $record = $this->createDeduplicatedNotification(
+            recipient: $applicant,
+            typeClass: CreatorApplicationApprovedNotification::class,
+            data: $notificationObj->toPayload(),
+            dedupeKey: $notificationObj->dedupeKey()
+        );
+
+        if ($record) {
+            $this->broadcastNotificationCreated($applicant, $record);
+        }
+
+        return $record;
+    }
+
+    /**
+     * Notify applicant that their creator application has been rejected.
+     * Enforces deduplication by application ID and version.
+     */
+    public function notifyCreatorApplicationRejected(CreatorApplication $application, User $admin, string $reason): ?DatabaseNotification
+    {
+        $applicant = User::where('id', $application->user_id)
+            ->where('is_active', true)
+            ->first();
+
+        if (! $applicant) {
+            return null;
+        }
+
+        $notificationObj = new CreatorApplicationRejectedNotification($application, $admin, $reason);
+
+        $record = $this->createDeduplicatedNotification(
+            recipient: $applicant,
+            typeClass: CreatorApplicationRejectedNotification::class,
+            data: $notificationObj->toPayload(),
+            dedupeKey: $notificationObj->dedupeKey()
+        );
+
+        if ($record) {
+            $this->broadcastNotificationCreated($applicant, $record);
+        }
+
+        return $record;
     }
 
     /**
