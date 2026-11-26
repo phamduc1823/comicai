@@ -7,9 +7,12 @@ use App\Http\Requests\LoginRequest;
 use App\Http\Requests\RegisterRequest;
 use App\Http\Resources\UserResource;
 use App\Models\User;
+use App\Services\Contracts\WalletServiceInterface;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -23,13 +26,27 @@ class AuthController extends Controller
     {
         $validated = $request->validated();
 
-        $user = User::create([
-            'name' => $validated['name'],
-            'email' => $validated['email'],
-            'password' => $validated['password'],
-        ]);
+        $user = DB::transaction(function () use ($validated) {
+            $user = User::create([
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+                'password' => $validated['password'],
+            ]);
 
-        app(\App\Services\Contracts\WalletServiceInterface::class)->getOrCreateWallet($user);
+            try {
+                app(WalletServiceInterface::class)->getOrCreateWallet($user);
+            } catch (QueryException $e) {
+                // If wallets table is not yet migrated in database environment, report warning
+                // but do not crash the user registration if the table is physically missing.
+                if ($e->getCode() === '42S02' || str_contains($e->getMessage(), "doesn't exist")) {
+                    report($e);
+                } else {
+                    throw $e;
+                }
+            }
+
+            return $user;
+        });
 
         Auth::guard('web')->login($user);
 
@@ -65,7 +82,9 @@ class AuthController extends Controller
             ]);
         }
 
-        $request->session()->regenerate();
+        if ($request->hasSession()) {
+            $request->session()->regenerate();
+        }
 
         /** @var User $user */
         $user = Auth::guard('web')->user();
@@ -104,5 +123,65 @@ class AuthController extends Controller
             'status' => 'success',
             'user' => new UserResource($request->user()),
         ]);
+    }
+
+    /**
+     * Send email verification notification to current user.
+     */
+    public function sendVerificationNotification(Request $request): JsonResponse
+    {
+        if ($request->user()->hasVerifiedEmail()) {
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Email đã được xác minh trước đó.',
+            ]);
+        }
+
+        $request->user()->sendEmailVerificationNotification();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Đã gửi liên kết xác minh vào email của bạn. Vui lòng kiểm tra hộp thư.',
+        ]);
+    }
+
+    /**
+     * Mark user's email as verified via signed link.
+     */
+    public function verifyEmail(Request $request, int $id, string $hash)
+    {
+        $user = User::findOrFail($id);
+
+        if (! hash_equals((string) $hash, sha1($user->getEmailForVerification()))) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Liên kết xác minh không hợp lệ.',
+            ], 403);
+        }
+
+        if ($user->hasVerifiedEmail()) {
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'status' => 'success',
+                    'message' => 'Email đã được xác minh trước đó.',
+                ]);
+            }
+            $frontendUrl = env('FRONTEND_URL', 'http://127.0.0.1:5173');
+            return redirect()->to($frontendUrl . '/become-creator?verified=1');
+        }
+
+        if ($user->markEmailAsVerified()) {
+            event(new \Illuminate\Auth\Events\Verified($user));
+        }
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Xác minh email thành công.',
+            ]);
+        }
+
+        $frontendUrl = env('FRONTEND_URL', 'http://127.0.0.1:5173');
+        return redirect()->to($frontendUrl . '/become-creator?verified=1');
     }
 }

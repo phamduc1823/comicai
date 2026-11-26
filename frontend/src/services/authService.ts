@@ -65,4 +65,12 @@ export class AuthService {
     const response = await httpClient.get<UserProfileResponse>('/user')
     return response.data.user
   }
+
+  /**
+   * Request email verification link to be sent to user's registered email.
+   */
+  static async sendVerificationNotification(): Promise<{ status: string; message: string }> {
+    const response = await httpClient.post<{ status: string; message: string }>('/email/verification-notification')
+    return response.data
+  }
 }

@@ -688,4 +688,172 @@ class AuthenticationTest extends TestCase
             $limiter->clear('register'.sha1('|'.$testIp));
         }
     }
+
+    /**
+     * 20. Test registration is atomic and rolls back user creation on unhandled failure (CAI-AUTH-01).
+     */
+    public function test_registration_is_atomic_and_rolls_back_user_creation_on_unhandled_failure(): void
+    {
+        $mock = $this->mock(\App\Services\Contracts\WalletServiceInterface::class);
+        $mock->shouldReceive('getOrCreateWallet')
+            ->andThrow(new \RuntimeException('Unexpected database or network crash'));
+
+        try {
+            $this->spaJson('POST', '/api/register', [
+                'name' => 'Failed User',
+                'email' => 'failed_rollback@example.com',
+                'password' => 'Password123!',
+                'password_confirmation' => 'Password123!',
+            ]);
+        } catch (\Throwable) {
+            // Expected
+        }
+
+        // Verify that failed user was completely rolled back and is NOT in database
+        $this->assertDatabaseMissing('users', [
+            'email' => 'failed_rollback@example.com',
+        ]);
+
+        // Unbind mock and verify registration with the exact same email now succeeds cleanly
+        $this->app->forgetInstance(\App\Services\Contracts\WalletServiceInterface::class);
+
+        $retryResponse = $this->spaJson('POST', '/api/register', [
+            'name' => 'Failed User',
+            'email' => 'failed_rollback@example.com',
+            'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
+        ]);
+
+        $retryResponse->assertStatus(201);
+        $this->assertDatabaseHas('users', [
+            'email' => 'failed_rollback@example.com',
+        ]);
+    }
+
+    /**
+     * 21. Test registration succeeds gracefully and does not throw raw SQL error when wallets table is missing (CAI-AUTH-01).
+     */
+    public function test_registration_succeeds_gracefully_when_wallets_table_is_missing(): void
+    {
+        $mock = $this->mock(\App\Services\Contracts\WalletServiceInterface::class);
+        $queryException = new \Illuminate\Database\QueryException(
+            'mysql',
+            'select * from `wallets` where `user_id` = 48 limit 1',
+            [],
+            new \Exception("Table 'comicai.wallets' doesn't exist", 1146)
+        );
+        $mock->shouldReceive('getOrCreateWallet')
+            ->andThrow($queryException);
+
+        $response = $this->spaJson('POST', '/api/register', [
+            'name' => 'Resilient User',
+            'email' => 'resilient@example.com',
+            'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
+        ]);
+
+        $response->assertStatus(201);
+        $response->assertJson([
+            'status' => 'success',
+            'message' => 'Đăng ký tài khoản thành công.',
+        ]);
+
+        $this->assertDatabaseHas('users', [
+            'email' => 'resilient@example.com',
+        ]);
+    }
+
+    /**
+     * 22. Test user can request email verification notification.
+     */
+    public function test_user_can_request_email_verification_notification(): void
+    {
+        \Illuminate\Support\Facades\Notification::fake();
+
+        $user = User::factory()->create([
+            'email_verified_at' => null,
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($user, 'web')
+            ->postJson('/api/email/verification-notification');
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'status' => 'success',
+            'message' => 'Đã gửi liên kết xác minh vào email của bạn. Vui lòng kiểm tra hộp thư.',
+        ]);
+
+        \Illuminate\Support\Facades\Notification::assertSentTo(
+            $user,
+            \Illuminate\Auth\Notifications\VerifyEmail::class
+        );
+    }
+
+    /**
+     * 23. Test already verified user cannot request another verification notification.
+     */
+    public function test_already_verified_user_cannot_request_another_verification(): void
+    {
+        \Illuminate\Support\Facades\Notification::fake();
+
+        $user = User::factory()->create([
+            'email_verified_at' => now(),
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($user, 'web')
+            ->postJson('/api/email/verification-notification');
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'status' => 'success',
+            'message' => 'Email đã được xác minh trước đó.',
+        ]);
+
+        \Illuminate\Support\Facades\Notification::assertNothingSent();
+    }
+
+    /**
+     * 24. Test user can verify email via signed URL and gets redirected to creator application page.
+     */
+    public function test_user_can_verify_email_via_signed_url(): void
+    {
+        $user = User::factory()->create([
+            'email_verified_at' => null,
+            'is_active' => true,
+        ]);
+
+        $verificationUrl = \Illuminate\Support\Facades\URL::temporarySignedRoute(
+            'verification.verify',
+            now()->addMinutes(60),
+            [
+                'id' => $user->id,
+                'hash' => sha1($user->getEmailForVerification()),
+            ]
+        );
+
+        $response = $this->get($verificationUrl);
+
+        $response->assertRedirect('http://127.0.0.1:5173/become-creator?verified=1');
+        $this->assertNotNull($user->fresh()->email_verified_at);
+    }
+
+    /**
+     * 25. Test email verification fails with invalid hash or expired signature.
+     */
+    public function test_email_verification_fails_with_invalid_hash_or_tampered_signature(): void
+    {
+        $user = User::factory()->create([
+            'email_verified_at' => null,
+            'is_active' => true,
+        ]);
+
+        // Tampered hash URL without valid signature
+        $invalidUrl = "/api/email/verify/{$user->id}/invalid-hash";
+        $response = $this->get($invalidUrl);
+
+        $response->assertStatus(403);
+        $this->assertNull($user->fresh()->email_verified_at);
+    }
 }
