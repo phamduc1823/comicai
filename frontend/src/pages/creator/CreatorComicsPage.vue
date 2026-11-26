@@ -7,7 +7,7 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import RejectionReasonModal from '@/components/common/RejectionReasonModal.vue'
 import { CreatorService } from '@/services/creatorService'
 import { getErrorMessage } from '@/services/httpClient'
-import type { CreatorComic, ApprovalStatus, ComicProgressStatus } from '@/types/creator'
+import type { CreatorComic, CreatorChapter, ApprovalStatus, ComicProgressStatus } from '@/types/creator'
 import type { PaginationMeta } from '@/types/catalog'
 
 const router = useRouter()
@@ -102,31 +102,80 @@ function handlePageChange(page: number) {
 
 // ---------------- Thao tác nghiệp vụ ----------------
 
+// Submit Review Modal with Chapter Selection (CAI-ADMIN-03)
+const isSubmitReviewModalOpen = ref(false)
+const submitReviewComic = ref<CreatorComic | null>(null)
+const reviewableChapters = ref<CreatorChapter[]>([])
+const selectedChapterIds = ref<number[]>([])
+const isLoadingReviewableChapters = ref(false)
+const submitReviewError = ref<string | null>(null)
+
 /**
- * Gửi truyện duyệt (draft / rejected -> pending)
+ * Gửi truyện duyệt (draft / rejected -> pending) kèm chọn chương tùy chọn (CAI-ADMIN-03)
  */
-function promptSubmitReview(comic: CreatorComic) {
-  confirmModalTitle.value = 'Gửi duyệt tác phẩm'
-  confirmModalMessage.value = `Bạn có chắc chắn muốn gửi bộ truyện "${comic.title}" tới Quản trị viên để kiểm duyệt? Bộ truyện sẽ không thể chỉnh sửa trong thời gian chờ duyệt.`
-  confirmModalType.value = 'primary'
-  confirmModalAction.value = async () => {
-    if (isActionLoading.value) return
-    isActionLoading.value = true
-    errorMessage.value = null
-    try {
-      await CreatorService.submitReview(comic.id)
-      confirmModalOpen.value = false
-      showSuccessFeedback(`Đã gửi duyệt bộ truyện "${comic.title}" thành công.`)
-      await loadComics(currentPage.value)
-    } catch (err: unknown) {
-      confirmModalOpen.value = false
-      errorMessage.value = getErrorMessage(err, 'Gửi duyệt không thành công.')
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-    } finally {
-      isActionLoading.value = false
-    }
+async function promptSubmitReview(comic: CreatorComic) {
+  submitReviewComic.value = comic
+  selectedChapterIds.value = []
+  submitReviewError.value = null
+  isSubmitReviewModalOpen.value = true
+  isLoadingReviewableChapters.value = true
+
+  try {
+    const res = await CreatorService.getChapters(comic.id, {
+      status: 'reviewable',
+      per_page: 100,
+    })
+    reviewableChapters.value = res.data || []
+  } catch (err: unknown) {
+    submitReviewError.value = getErrorMessage(err, 'Không thể tải danh sách chương.')
+  } finally {
+    isLoadingReviewableChapters.value = false
   }
-  confirmModalOpen.value = true
+}
+
+function selectAllReviewableChapters() {
+  selectedChapterIds.value = reviewableChapters.value.map((c) => c.id)
+}
+
+function deselectAllReviewableChapters() {
+  selectedChapterIds.value = []
+}
+
+function toggleReviewableChapter(id: number) {
+  const idx = selectedChapterIds.value.indexOf(id)
+  if (idx > -1) {
+    selectedChapterIds.value.splice(idx, 1)
+  } else {
+    selectedChapterIds.value.push(id)
+  }
+}
+
+async function handleConfirmSubmitReview() {
+  if (!submitReviewComic.value || isActionLoading.value) return
+  isActionLoading.value = true
+  submitReviewError.value = null
+  const comicTitle = submitReviewComic.value.title
+  const chapIds = selectedChapterIds.value.length > 0 ? selectedChapterIds.value : undefined
+
+  try {
+    await CreatorService.submitReview(submitReviewComic.value.id, chapIds)
+    isSubmitReviewModalOpen.value = false
+    showSuccessFeedback(`Đã gửi duyệt bộ truyện "${comicTitle}" thành công.`)
+    await loadComics(currentPage.value)
+  } catch (err: unknown) {
+    submitReviewError.value = getErrorMessage(err, 'Gửi duyệt không thành công.')
+  } finally {
+    isActionLoading.value = false
+  }
+}
+
+function closeSubmitReviewModal() {
+  if (isActionLoading.value) return
+  isSubmitReviewModalOpen.value = false
+  submitReviewComic.value = null
+  selectedChapterIds.value = []
+  reviewableChapters.value = []
+  submitReviewError.value = null
 }
 
 /**
@@ -637,6 +686,106 @@ onMounted(() => {
         @close="rejectionModalOpen = false"
         @edit="handleEditFromRejectionModal"
       />
+
+      <!-- Submit Review Modal with Chapter Selection (CAI-ADMIN-03) -->
+      <div v-if="isSubmitReviewModalOpen" class="modal-backdrop" @click.self="closeSubmitReviewModal">
+        <div class="submit-review-modal" role="dialog" aria-modal="true" aria-labelledby="submit-modal-title">
+          <div class="modal-header">
+            <div>
+              <h3 id="submit-modal-title" class="modal-title">Gửi duyệt tác phẩm: {{ submitReviewComic?.title }}</h3>
+              <p class="modal-subtitle">
+                Chọn các chương muốn gửi duyệt cùng bộ truyện. Nếu không chọn chương nào, hệ thống chỉ gửi duyệt thông tin bộ truyện.
+              </p>
+            </div>
+            <button
+              type="button"
+              class="btn-close-modal"
+              :disabled="isActionLoading"
+              aria-label="Đóng modal"
+              @click="closeSubmitReviewModal"
+            >✕</button>
+          </div>
+
+          <div v-if="submitReviewError" class="modal-alert-error" role="alert">
+            ⚠️ {{ submitReviewError }}
+          </div>
+
+          <div class="modal-body-scroll">
+            <div v-if="isLoadingReviewableChapters" class="chapters-loading-box">
+              <span class="spinner-icon">⏳</span> Đang kiểm tra danh sách chương...
+            </div>
+
+            <div v-else-if="reviewableChapters.length === 0" class="empty-chapters-note">
+              <span class="note-icon">ℹ️</span>
+              <div>
+                <strong>Không có chương nào ở trạng thái Bản nháp hoặc Bị từ chối.</strong>
+                <p>Bạn vẫn có thể gửi duyệt bộ truyện tới Quản trị viên.</p>
+              </div>
+            </div>
+
+            <div v-else class="chapters-selection-box">
+              <div class="chapters-selection-toolbar">
+                <div class="selection-counts">
+                  Đã chọn: <span class="badge-count">{{ selectedChapterIds.length }}</span> / {{ reviewableChapters.length }} chương đủ điều kiện
+                </div>
+                <div class="selection-actions">
+                  <button type="button" class="btn-tool" :disabled="isActionLoading" @click="selectAllReviewableChapters">
+                    Chọn tất cả
+                  </button>
+                  <button type="button" class="btn-tool" :disabled="isActionLoading" @click="deselectAllReviewableChapters">
+                    Bỏ chọn tất cả
+                  </button>
+                </div>
+              </div>
+
+              <div class="chapters-checklist">
+                <label
+                  v-for="chap in reviewableChapters"
+                  :key="chap.id"
+                  class="chapter-check-item"
+                  :class="{ 'is-selected': selectedChapterIds.includes(chap.id) }"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="selectedChapterIds.includes(chap.id)"
+                    :disabled="isActionLoading"
+                    @change="toggleReviewableChapter(chap.id)"
+                  />
+                  <div class="chapter-info">
+                    <span class="chap-num">#{{ chap.chapter_number }}</span>
+                    <span class="chap-title">{{ chap.title || 'Chương không tên' }}</span>
+                  </div>
+                  <div class="chapter-meta">
+                    <span class="badge-status" :class="chap.status">
+                      {{ chap.status === 'draft' ? 'Bản nháp' : 'Bị từ chối' }}
+                    </span>
+                    <span class="badge-images">{{ chap.images_count || 0 }} ảnh</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn-modal-cancel"
+              :disabled="isActionLoading"
+              @click="closeSubmitReviewModal"
+            >
+              Hủy bỏ
+            </button>
+            <button
+              type="button"
+              class="btn-modal-confirm"
+              :disabled="isActionLoading || isLoadingReviewableChapters"
+              @click="handleConfirmSubmitReview"
+            >
+              {{ isActionLoading ? 'Đang gửi...' : (selectedChapterIds.length > 0 ? `Gửi duyệt cùng ${selectedChapterIds.length} chương` : 'Gửi duyệt bộ truyện') }}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </CreatorLayout>
 </template>
@@ -1272,5 +1421,294 @@ onMounted(() => {
 
 .pagination-info strong {
   color: var(--color-text-primary);
+}
+
+/* Submit Review Modal with Chapter Selection (CAI-ADMIN-03) */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--spacing-md);
+}
+
+.submit-review-modal {
+  background-color: var(--color-bg-surface, #1e293b);
+  border: 1px solid var(--color-border, #334155);
+  border-radius: var(--radius-xl, 16px);
+  width: 100%;
+  max-width: 620px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: var(--spacing-lg, 20px);
+  border-bottom: 1px solid var(--color-border, #334155);
+  gap: var(--spacing-md, 16px);
+}
+
+.modal-title {
+  font-size: var(--font-size-lg, 1.125rem);
+  font-weight: var(--font-weight-bold, 700);
+  color: var(--color-text-primary, #f8fafc);
+  margin: 0;
+}
+
+.modal-subtitle {
+  font-size: var(--font-size-xs, 0.8125rem);
+  color: var(--color-text-muted, #94a3b8);
+  margin: 4px 0 0 0;
+  line-height: 1.4;
+}
+
+.btn-close-modal {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted, #94a3b8);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm, 6px);
+  transition: all var(--transition-fast, 0.15s);
+}
+
+.btn-close-modal:hover:not(:disabled) {
+  background-color: var(--color-bg-elevated, #334155);
+  color: #fff;
+}
+
+.modal-alert-error {
+  margin: 12px 20px 0;
+  padding: 10px 14px;
+  background-color: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: var(--radius-md, 8px);
+  color: #fca5a5;
+  font-size: var(--font-size-sm, 0.875rem);
+}
+
+.modal-body-scroll {
+  padding: 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.chapters-loading-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 0;
+  color: var(--color-text-muted, #94a3b8);
+  font-size: var(--font-size-sm, 0.875rem);
+}
+
+.empty-chapters-note {
+  display: flex;
+  gap: 12px;
+  background-color: var(--color-bg-elevated, #0f172a);
+  border: 1px solid var(--color-border, #334155);
+  border-radius: var(--radius-md, 8px);
+  padding: 14px 16px;
+  font-size: var(--font-size-sm, 0.875rem);
+  color: var(--color-text-secondary, #cbd5e1);
+  line-height: 1.5;
+}
+
+.empty-chapters-note .note-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.empty-chapters-note p {
+  margin: 4px 0 0;
+  font-size: var(--font-size-xs, 0.8125rem);
+  color: var(--color-text-muted, #94a3b8);
+}
+
+.chapters-selection-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  gap: 12px;
+}
+
+.selection-counts {
+  font-size: var(--font-size-sm, 0.875rem);
+  color: var(--color-text-secondary, #cbd5e1);
+}
+
+.badge-count {
+  font-weight: 700;
+  color: var(--color-primary, #38bdf8);
+}
+
+.selection-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-tool {
+  background: var(--color-bg-elevated, #0f172a);
+  border: 1px solid var(--color-border, #334155);
+  color: var(--color-text-secondary, #cbd5e1);
+  font-size: var(--font-size-xs, 0.8125rem);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s);
+}
+
+.btn-tool:hover:not(:disabled) {
+  border-color: var(--color-primary, #38bdf8);
+  color: #fff;
+}
+
+.chapters-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.chapter-check-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background-color: var(--color-bg-elevated, #0f172a);
+  border: 1px solid var(--color-border, #334155);
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s);
+  user-select: none;
+}
+
+.chapter-check-item:hover {
+  border-color: rgba(56, 189, 248, 0.4);
+  background-color: rgba(56, 189, 248, 0.04);
+}
+
+.chapter-check-item.is-selected {
+  border-color: var(--color-primary, #38bdf8);
+  background-color: rgba(56, 189, 248, 0.08);
+}
+
+.chapter-info {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.chap-num {
+  font-weight: 700;
+  color: var(--color-primary, #38bdf8);
+  font-size: var(--font-size-sm, 0.875rem);
+  white-space: nowrap;
+}
+
+.chap-title {
+  color: var(--color-text-primary, #f8fafc);
+  font-size: var(--font-size-sm, 0.875rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chapter-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.badge-status {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-weight: 600;
+}
+
+.badge-status.draft {
+  background-color: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+}
+
+.badge-status.rejected {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+
+.badge-images {
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #94a3b8);
+  background-color: rgba(255, 255, 255, 0.05);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--color-border, #334155);
+  background-color: rgba(15, 23, 42, 0.5);
+}
+
+.btn-modal-cancel {
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid var(--color-border, #334155);
+  color: var(--color-text-secondary, #cbd5e1);
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+  font-size: var(--font-size-sm, 0.875rem);
+  transition: all var(--transition-fast, 0.15s);
+}
+
+.btn-modal-cancel:hover:not(:disabled) {
+  border-color: var(--color-text-muted, #94a3b8);
+  color: #fff;
+}
+
+.btn-modal-confirm {
+  padding: 8px 20px;
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  border: none;
+  color: #fff;
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: var(--font-size-sm, 0.875rem);
+  transition: all var(--transition-fast, 0.15s);
+}
+
+.btn-modal-confirm:hover:not(:disabled) {
+  opacity: 0.95;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.35);
+}
+
+.btn-modal-confirm:disabled,
+.btn-modal-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

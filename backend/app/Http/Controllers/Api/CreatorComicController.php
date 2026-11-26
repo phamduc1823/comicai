@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreCreatorComicRequest;
 use App\Http\Requests\UpdateCreatorComicRequest;
 use App\Http\Resources\CreatorComicResource;
+use App\Models\Chapter;
 use App\Models\Comic;
+use App\Services\NotificationService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -368,8 +370,9 @@ class CreatorComicController extends Controller
 
     /**
      * Submit a draft or rejected comic for admin review.
+     * CAI-ADMIN-03: Supports selecting optional chapters to submit alongside the comic.
      */
-    public function submitReview(int|string $id): JsonResponse
+    public function submitReview(Request $request, int|string $id, NotificationService $notificationService): JsonResponse
     {
         $comic = Comic::with(['genres', 'tags', 'user:id,name,avatar_path', 'approver:id,name'])->findOrFail($id);
         $this->authorize('submitReview', $comic);
@@ -382,13 +385,88 @@ class CreatorComicController extends Controller
             ], 422);
         }
 
-        $comic->approval_status = 'pending';
-        $comic->save();
+        $validated = $request->validate([
+            'chapter_ids' => ['nullable', 'array'],
+            'chapter_ids.*' => ['integer', 'distinct'],
+        ]);
+
+        $selectedChapterIds = [];
+        if (! empty($validated['chapter_ids'])) {
+            $selectedChapterIds = array_values(array_unique(array_map('intval', $validated['chapter_ids'])));
+            $chapters = Chapter::withCount('images')
+                ->whereIn('id', $selectedChapterIds)
+                ->get();
+
+            // 1. Validate all chapter IDs exist
+            if ($chapters->count() !== count($selectedChapterIds)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Một hoặc nhiều chương được chọn không tồn tại.',
+                ], 422);
+            }
+
+            // 2. Validate chapters belong to this comic and have valid reviewable status
+            foreach ($chapters as $chapter) {
+                if ((int) $chapter->comic_id !== (int) $comic->id) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Một hoặc nhiều chương không thuộc bộ truyện này.',
+                    ], 422);
+                }
+
+                $chapNum = rtrim(rtrim((string) $chapter->chapter_number, '0'), '.');
+                if (! in_array($chapter->status, ['draft', 'rejected'], true)) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => "Chỉ có thể gửi duyệt các chương ở trạng thái bản nháp hoặc bị từ chối (Chương #{$chapNum} đang ở trạng thái '{$chapter->status}').",
+                    ], 422);
+                }
+
+                if ($chapter->images_count === 0) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => "Chương #{$chapNum} phải có ít nhất một ảnh trước khi gửi duyệt.",
+                    ], 422);
+                }
+            }
+        }
+
+        DB::transaction(function () use ($comic, $selectedChapterIds) {
+            $lockedComic = Comic::where('id', $comic->id)->lockForUpdate()->firstOrFail();
+            $lockedComic->approval_status = 'pending';
+            $lockedComic->save();
+
+            if (! empty($selectedChapterIds)) {
+                Chapter::whereIn('id', $selectedChapterIds)
+                    ->lockForUpdate()
+                    ->update([
+                        'status' => 'pending',
+                        'rejection_reason' => null,
+                        'updated_at' => now(),
+                    ]);
+            }
+        });
+
+        $comic->refresh();
+        $submittedCount = count($selectedChapterIds);
+
+        // Notify admins with consolidated notification per comic submission batch
+        $creator = $request->user();
+        if ($creator) {
+            $notificationService->notifyComicSubmittedForReview($comic, $creator, $submittedCount);
+        }
+
+        $message = $submittedCount > 0
+            ? "Gửi duyệt bộ truyện cùng {$submittedCount} chương thành công."
+            : 'Gửi duyệt bộ truyện thành công.';
 
         return response()->json([
             'status' => 'success',
-            'message' => 'Gửi duyệt bộ truyện thành công.',
+            'message' => $message,
             'data' => new CreatorComicResource($comic),
+            'meta' => [
+                'submitted_chapters_count' => $submittedCount,
+            ],
         ]);
     }
 

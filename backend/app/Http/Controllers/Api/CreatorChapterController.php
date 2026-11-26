@@ -41,7 +41,12 @@ class CreatorChapterController extends Controller
             ->orderBy('id', 'asc');
 
         if ($request->filled('status')) {
-            $query->where('status', $request->input('status'));
+            $statusVal = $request->input('status');
+            if ($statusVal === 'reviewable') {
+                $query->whereIn('status', ['draft', 'rejected']);
+            } else {
+                $query->where('status', $statusVal);
+            }
         }
 
         $perPage = min(max($request->integer('per_page', 20), 1), 100);

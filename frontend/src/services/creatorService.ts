@@ -166,12 +166,21 @@ export class CreatorService {
 
   /**
    * Submit a draft or rejected comic for Admin moderation.
+   * CAI-ADMIN-03: Supports optional chapter_ids to submit chapters alongside the comic.
    * POST /api/creator/comics/{id}/submit-review
    */
-  static async submitReview(id: number | string): Promise<SingleResponse<CreatorComic>> {
+  static async submitReview(
+    id: number | string,
+    chapterIds?: number[]
+  ): Promise<SingleResponse<CreatorComic>> {
     const encodedId = encodeURIComponent(String(id))
+    const payload: { chapter_ids?: number[] } = {}
+    if (chapterIds && chapterIds.length > 0) {
+      payload.chapter_ids = chapterIds
+    }
     const response = await httpClient.post<SingleResponse<CreatorComic>>(
-      `/creator/comics/${encodedId}/submit-review`
+      `/creator/comics/${encodedId}/submit-review`,
+      payload
     )
     return response.data
   }

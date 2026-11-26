@@ -167,7 +167,7 @@ export interface CreatorChapter {
 export interface ListCreatorChaptersParams {
   page?: number
   per_page?: number
-  status?: ChapterStatus
+  status?: ChapterStatus | 'reviewable' | string
 }
 
 /**
