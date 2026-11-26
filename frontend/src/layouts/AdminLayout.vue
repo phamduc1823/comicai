@@ -19,6 +19,8 @@ const userInitials = computed(() => {
 })
 
 const currentSectionTitle = computed(() => {
+  if (route.path.startsWith('/admin/creator-applications')) return 'Quản lý Hồ sơ Creator'
+  if (route.path.startsWith('/admin/creators')) return 'Quản lý Creator'
   if (route.path.includes('/chapters')) return 'Kiểm duyệt chương Webtoon'
   if (route.path.includes('/banners')) return 'Quản lý Banner Slider Trang Chủ'
   if (route.path.includes('/reports')) return 'Quản lý Báo cáo vi phạm'
@@ -115,6 +117,28 @@ function closeMobileSidebar() {
         >
           <span class="nav-icon" aria-hidden="true">🚩</span>
           <span class="nav-label">Báo cáo vi phạm</span>
+        </RouterLink>
+
+        <div class="nav-section-label nav-section-divider">Quản lý Creator</div>
+
+        <RouterLink
+          to="/admin/creator-applications"
+          class="sidebar-nav-item"
+          :class="{ active: route.path.startsWith('/admin/creator-applications') }"
+          @click="closeMobileSidebar"
+        >
+          <span class="nav-icon" aria-hidden="true">📝</span>
+          <span class="nav-label">Hồ sơ Creator</span>
+        </RouterLink>
+
+        <RouterLink
+          to="/admin/creators"
+          class="sidebar-nav-item"
+          :class="{ active: route.path.startsWith('/admin/creators') }"
+          @click="closeMobileSidebar"
+        >
+          <span class="nav-icon" aria-hidden="true">🎨</span>
+          <span class="nav-label">Danh sách Creator</span>
         </RouterLink>
 
         <div class="nav-section-label nav-section-divider">Hệ thống</div>

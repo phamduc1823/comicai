@@ -19,6 +19,8 @@
     "test:chat:lazy": "node tests/unit-chat-lazy.mjs",
     "test:messaging-fixes": "node tests/unit-messaging-fixes.mjs",
     "test:notifications": "node tests/unit-notifications.mjs",
+    "test:creator-application": "node tests/unit-creator-application.mjs",
+    "test:admin-creator": "node tests/unit-admin-creator.mjs",
     "test:chat:browser": "node tests/e2e/chat-browser-mock.mjs",
     "test:e2e": "node tests/e2e/auth.spec.mjs"
   },
