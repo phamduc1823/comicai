@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { getErrorMessage } from '@/services/httpClient'
+import { useAdminSidebarScroll } from '@/composables/useAdminSidebarScroll'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+
+const { getSavedScrollTop, setSavedScrollTop } = useAdminSidebarScroll()
+const navRef = ref<HTMLElement | null>(null)
+let isRestoringScroll = false
 
 const isMobileSidebarOpen = ref(false)
 const isLoggingOut = ref(false)
@@ -19,9 +24,17 @@ const userInitials = computed(() => {
 })
 
 const currentSectionTitle = computed(() => {
+  if (route.path.startsWith('/admin/dashboard')) return 'Bảng điều khiển Quản trị'
+  if (route.path.startsWith('/admin/users')) return 'Quản lý Người dùng'
+  if (route.path.startsWith('/admin/comics')) return 'Kho Truyện Tranh'
+  if (route.path.startsWith('/admin/chapters')) return 'Kho Chương Webtoon'
+  if (route.path.startsWith('/admin/genres-tags')) return 'Quản lý Thể loại & Thẻ truyện'
+  if (route.path.startsWith('/admin/wallets')) return 'Sổ Cái & Ví Coin'
+  if (route.path.startsWith('/admin/vip-purchases')) return 'Mua VIP & Hoàn Tiền'
+  if (route.path.startsWith('/admin/broadcast-notifications')) return 'Thông Báo Hệ Thống'
   if (route.path.startsWith('/admin/creator-applications')) return 'Quản lý Hồ sơ Creator'
   if (route.path.startsWith('/admin/creators')) return 'Quản lý Creator'
-  if (route.path.includes('/chapters')) return 'Kiểm duyệt chương Webtoon'
+  if (route.path.includes('/moderation/chapters')) return 'Kiểm duyệt chương Webtoon'
   if (route.path.includes('/banners')) return 'Quản lý Banner Slider Trang Chủ'
   if (route.path.includes('/reports')) return 'Quản lý Báo cáo vi phạm'
   return 'Kiểm duyệt truyện tranh'
@@ -41,9 +54,44 @@ async function handleLogout() {
   }
 }
 
+function handleNavScroll(event: Event) {
+  if (isRestoringScroll) return
+  const target = event.target as HTMLElement
+  if (target) {
+    setSavedScrollTop(target.scrollTop)
+  }
+}
+
+function saveNavScrollPosition() {
+  if (navRef.value) {
+    setSavedScrollTop(navRef.value.scrollTop)
+  }
+}
+
 function closeMobileSidebar() {
+  saveNavScrollPosition()
   isMobileSidebarOpen.value = false
 }
+
+onMounted(() => {
+  const savedTop = getSavedScrollTop()
+  if (savedTop > 0 && navRef.value) {
+    isRestoringScroll = true
+    navRef.value.scrollTop = savedTop
+
+    // Re-assert on next animation frame in case fonts or dynamic layout shift
+    requestAnimationFrame(() => {
+      if (navRef.value) {
+        navRef.value.scrollTop = savedTop
+      }
+      isRestoringScroll = false
+    })
+  }
+})
+
+onBeforeUnmount(() => {
+  saveNavScrollPosition()
+})
 </script>
 
 <template>
@@ -64,7 +112,7 @@ function closeMobileSidebar() {
     >
       <!-- Sidebar Brand -->
       <div class="sidebar-brand">
-        <RouterLink to="/admin/moderation/comics" class="brand-link" @click="closeMobileSidebar">
+        <RouterLink to="/admin/dashboard" class="brand-link" @click="closeMobileSidebar">
           <span class="brand-logo" aria-hidden="true">🛡️</span>
           <div class="brand-names">
             <span class="brand-title">BlueToon</span>
@@ -74,8 +122,24 @@ function closeMobileSidebar() {
       </div>
 
       <!-- Sidebar Navigation Menu -->
-      <nav class="sidebar-nav">
-        <div class="nav-section-label">Hàng đợi kiểm duyệt</div>
+      <nav
+        ref="navRef"
+        class="sidebar-nav"
+        @scroll.passive="handleNavScroll"
+      >
+        <div class="nav-section-label">Tổng quan</div>
+
+        <RouterLink
+          to="/admin/dashboard"
+          class="sidebar-nav-item"
+          :class="{ active: route.path === '/admin/dashboard' || route.path === '/admin' }"
+          @click="closeMobileSidebar"
+        >
+          <span class="nav-icon" aria-hidden="true">📊</span>
+          <span class="nav-label">Bảng điều khiển (Dashboard)</span>
+        </RouterLink>
+
+        <div class="nav-section-label nav-section-divider">Hàng đợi kiểm duyệt</div>
 
         <RouterLink
           to="/admin/moderation/comics"
@@ -97,7 +161,37 @@ function closeMobileSidebar() {
           <span class="nav-label">Duyệt chương Webtoon</span>
         </RouterLink>
 
+        <RouterLink
+          to="/admin/reports"
+          class="sidebar-nav-item"
+          :class="{ active: route.path.startsWith('/admin/reports') }"
+          @click="closeMobileSidebar"
+        >
+          <span class="nav-icon" aria-hidden="true">🚩</span>
+          <span class="nav-label">Báo cáo vi phạm</span>
+        </RouterLink>
+
         <div class="nav-section-label nav-section-divider">Quản lý nội dung</div>
+
+        <RouterLink
+          to="/admin/comics"
+          class="sidebar-nav-item"
+          :class="{ active: route.path.startsWith('/admin/comics') }"
+          @click="closeMobileSidebar"
+        >
+          <span class="nav-icon" aria-hidden="true">📖</span>
+          <span class="nav-label">Quản lý truyện</span>
+        </RouterLink>
+
+        <RouterLink
+          to="/admin/genres-tags"
+          class="sidebar-nav-item"
+          :class="{ active: route.path.startsWith('/admin/genres-tags') }"
+          @click="closeMobileSidebar"
+        >
+          <span class="nav-icon" aria-hidden="true">🏷️</span>
+          <span class="nav-label">Thể loại & Thẻ truyện</span>
+        </RouterLink>
 
         <RouterLink
           to="/admin/banners"
@@ -107,16 +201,6 @@ function closeMobileSidebar() {
         >
           <span class="nav-icon" aria-hidden="true">🖼️</span>
           <span class="nav-label">Quản lý Banner Slider</span>
-        </RouterLink>
-
-        <RouterLink
-          to="/admin/reports"
-          class="sidebar-nav-item"
-          :class="{ active: route.path.startsWith('/admin/reports') }"
-          @click="closeMobileSidebar"
-        >
-          <span class="nav-icon" aria-hidden="true">🚩</span>
-          <span class="nav-label">Báo cáo vi phạm</span>
         </RouterLink>
 
         <div class="nav-section-label nav-section-divider">Quản lý Creator</div>
@@ -141,7 +225,49 @@ function closeMobileSidebar() {
           <span class="nav-label">Danh sách Creator</span>
         </RouterLink>
 
+        <div class="nav-section-label nav-section-divider">Người dùng & Tài chính</div>
+
+        <RouterLink
+          to="/admin/users"
+          class="sidebar-nav-item"
+          :class="{ active: route.path.startsWith('/admin/users') }"
+          @click="closeMobileSidebar"
+        >
+          <span class="nav-icon" aria-hidden="true">👥</span>
+          <span class="nav-label">Quản lý Người dùng</span>
+        </RouterLink>
+
+        <RouterLink
+          to="/admin/wallets"
+          class="sidebar-nav-item"
+          :class="{ active: route.path.startsWith('/admin/wallets') }"
+          @click="closeMobileSidebar"
+        >
+          <span class="nav-icon" aria-hidden="true">👛</span>
+          <span class="nav-label">Sổ cái & Ví Coin</span>
+        </RouterLink>
+
+        <RouterLink
+          to="/admin/vip-purchases"
+          class="sidebar-nav-item"
+          :class="{ active: route.path.startsWith('/admin/vip-purchases') }"
+          @click="closeMobileSidebar"
+        >
+          <span class="nav-icon" aria-hidden="true">💎</span>
+          <span class="nav-label">Mua VIP & Hoàn tiền</span>
+        </RouterLink>
+
         <div class="nav-section-label nav-section-divider">Hệ thống</div>
+
+        <RouterLink
+          to="/admin/broadcast-notifications"
+          class="sidebar-nav-item"
+          :class="{ active: route.path.startsWith('/admin/broadcast-notifications') }"
+          @click="closeMobileSidebar"
+        >
+          <span class="nav-icon" aria-hidden="true">📢</span>
+          <span class="nav-label">Thông báo hệ thống</span>
+        </RouterLink>
 
         <RouterLink
           to="/creator/comics"
@@ -260,6 +386,7 @@ function closeMobileSidebar() {
   top: 0;
   height: 100vh;
   z-index: 100;
+  overflow: hidden;
   transition: transform var(--transition-normal);
 }
 
@@ -312,6 +439,17 @@ function closeMobileSidebar() {
   gap: 4px;
   flex: 1;
   overflow-y: auto;
+  /* Hide scrollbar for modern browsers (Firefox, Chrome 121+, Edge) */
+  scrollbar-width: none;
+  /* Hide scrollbar for IE 10+ and Edge Legacy */
+  -ms-overflow-style: none;
+}
+
+/* Hide scrollbar for WebKit browsers (Chrome, Safari, Edge, Opera) */
+.sidebar-nav::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .nav-section-label {
