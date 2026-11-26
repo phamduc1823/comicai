@@ -223,7 +223,120 @@ const router = createRouter({
     },
     {
       path: '/admin',
-      redirect: '/admin/moderation/comics',
+      redirect: '/admin/dashboard',
+    },
+    {
+      path: '/admin/dashboard',
+      name: 'admin-dashboard',
+      component: () => import('@/pages/admin/AdminDashboardPage.vue'),
+      meta: {
+        title: 'Bảng điều khiển — BlueToon Admin',
+        requiresAuth: true,
+        roles: ['admin'],
+      },
+    },
+    {
+      path: '/admin/users',
+      name: 'admin-users',
+      component: () => import('@/pages/admin/AdminUsersPage.vue'),
+      meta: {
+        title: 'Quản lý Người dùng — BlueToon Admin',
+        requiresAuth: true,
+        roles: ['admin'],
+      },
+    },
+    {
+      path: '/admin/comics',
+      name: 'admin-comics',
+      component: () => import('@/pages/admin/AdminComicsCatalogPage.vue'),
+      meta: {
+        title: 'Quản lý Truyện — BlueToon Admin',
+        requiresAuth: true,
+        roles: ['admin'],
+      },
+    },
+    {
+      path: '/admin/comics/:comicId',
+      name: 'admin-comic-detail',
+      component: () => import('@/pages/admin/AdminComicDetailPage.vue'),
+      props: true,
+      meta: {
+        title: 'Chi tiết truyện & Quản lý chương — BlueToon Admin',
+        requiresAuth: true,
+        roles: ['admin'],
+      },
+    },
+    {
+      path: '/admin/comics/:comicId/chapters',
+      name: 'admin-comic-chapters',
+      component: () => import('@/pages/admin/AdminComicDetailPage.vue'),
+      props: (route) => ({ comicId: route.params.comicId, defaultTab: 'chapters' }),
+      meta: {
+        title: 'Quản lý chương — BlueToon Admin',
+        requiresAuth: true,
+        roles: ['admin'],
+      },
+    },
+    {
+      path: '/admin/comics/:comicId/chapters/:chapterId',
+      name: 'admin-comic-chapter-detail',
+      component: () => import('@/pages/admin/AdminComicDetailPage.vue'),
+      props: (route) => ({ comicId: route.params.comicId, chapterId: route.params.chapterId, defaultTab: 'chapters' }),
+      meta: {
+        title: 'Chi tiết chương — BlueToon Admin',
+        requiresAuth: true,
+        roles: ['admin'],
+      },
+    },
+    {
+      path: '/admin/chapters',
+      name: 'admin-chapters-catalog',
+      component: () => import('@/pages/admin/AdminChaptersCatalogPage.vue'),
+      meta: {
+        title: 'Kho Chương Webtoon — BlueToon Admin',
+        requiresAuth: true,
+        roles: ['admin'],
+      },
+    },
+    {
+      path: '/admin/genres-tags',
+      name: 'admin-genres-tags',
+      component: () => import('@/pages/admin/AdminGenresTagsPage.vue'),
+      meta: {
+        title: 'Quản lý Thể loại & Thẻ — BlueToon Admin',
+        requiresAuth: true,
+        roles: ['admin'],
+      },
+    },
+    {
+      path: '/admin/wallets',
+      name: 'admin-wallets-ledger',
+      component: () => import('@/pages/admin/AdminWalletTransactionsPage.vue'),
+      meta: {
+        title: 'Sổ Cái & Ví Coin — BlueToon Admin',
+        requiresAuth: true,
+        roles: ['admin'],
+      },
+    },
+    {
+      path: '/admin/vip-purchases',
+      name: 'admin-vip-purchases',
+      component: () => import('@/pages/admin/AdminVipPurchasesPage.vue'),
+      meta: {
+        title: 'Mua VIP & Hoàn Tiền — BlueToon Admin',
+        requiresAuth: true,
+        roles: ['admin'],
+      },
+    },
+    {
+      path: '/admin/broadcast-notifications',
+      name: 'admin-broadcast-notifications',
+      component: () => import('@/pages/admin/AdminBroadcastNotificationsPage.vue'),
+      meta: {
+        title: 'Thông Báo Hệ Thống — BlueToon Admin',
+        requiresAuth: true,
+        roles: ['admin'],
+      },
     },
     {
       path: '/admin/moderation',

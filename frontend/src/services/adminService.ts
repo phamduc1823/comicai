@@ -268,4 +268,345 @@ export class AdminService {
   ): Promise<ReportActionResponse> {
     return ReportService.updateReport(id, payload)
   }
+
+  // =========================================================
+  // Module C: Admin Dashboard
+  // =========================================================
+  static async getDashboardStats(): Promise<{ status: string; data: import('@/types/admin').AdminDashboardStats }> {
+    const response = await httpClient.get<{ status: string; data: import('@/types/admin').AdminDashboardStats }>(
+      '/admin/dashboard/stats'
+    )
+    return response.data
+  }
+
+  // =========================================================
+  // Module B: Users Management
+  // =========================================================
+  static async getUsers(params?: {
+    q?: string
+    role?: string
+    is_active?: string | boolean
+    email_verified?: string
+    sort_by?: string
+    sort_dir?: string
+    page?: number
+    per_page?: number
+  }): Promise<PaginatedResponse<import('@/types/admin').AdminUser>> {
+    const response = await httpClient.get<PaginatedResponse<import('@/types/admin').AdminUser>>(
+      '/admin/users',
+      { params }
+    )
+    return response.data
+  }
+
+  static async getUser(id: number | string): Promise<{ status: string; data: any }> {
+    const response = await httpClient.get<{ status: string; data: any }>(`/admin/users/${id}`)
+    return response.data
+  }
+
+  static async toggleUserActive(id: number | string): Promise<{ status: string; message: string; data: import('@/types/admin').AdminUser }> {
+    const response = await httpClient.patch<{ status: string; message: string; data: import('@/types/admin').AdminUser }>(
+      `/admin/users/${id}/toggle-active`
+    )
+    return response.data
+  }
+
+  static async updateUserRole(
+    id: number | string,
+    role: 'reader' | 'creator' | 'admin'
+  ): Promise<{ status: string; message: string; data: import('@/types/admin').AdminUser }> {
+    const response = await httpClient.patch<{ status: string; message: string; data: import('@/types/admin').AdminUser }>(
+      `/admin/users/${id}/role`,
+      { role }
+    )
+    return response.data
+  }
+
+  // =========================================================
+  // Module A: Genres & Tags Management
+  // =========================================================
+  static async getGenres(params?: {
+    q?: string
+    is_active?: string | boolean
+    sort_by?: string
+    sort_dir?: string
+    page?: number
+    per_page?: number | string
+  }): Promise<PaginatedResponse<import('@/types/admin').AdminGenre>> {
+    const response = await httpClient.get<PaginatedResponse<import('@/types/admin').AdminGenre>>(
+      '/admin/genres',
+      { params }
+    )
+    return response.data
+  }
+
+  static async createGenre(payload: import('@/types/admin').CreateGenrePayload): Promise<{ status: string; message: string; data: import('@/types/admin').AdminGenre }> {
+    const response = await httpClient.post<{ status: string; message: string; data: import('@/types/admin').AdminGenre }>(
+      '/admin/genres',
+      payload
+    )
+    return response.data
+  }
+
+  static async updateGenre(
+    id: number | string,
+    payload: import('@/types/admin').UpdateGenrePayload
+  ): Promise<{ status: string; message: string; data: import('@/types/admin').AdminGenre }> {
+    const response = await httpClient.put<{ status: string; message: string; data: import('@/types/admin').AdminGenre }>(
+      `/admin/genres/${id}`,
+      payload
+    )
+    return response.data
+  }
+
+  static async toggleGenreStatus(id: number | string): Promise<{ status: string; message: string; data: import('@/types/admin').AdminGenre }> {
+    const response = await httpClient.patch<{ status: string; message: string; data: import('@/types/admin').AdminGenre }>(
+      `/admin/genres/${id}/toggle-status`
+    )
+    return response.data
+  }
+
+  static async deleteGenre(id: number | string): Promise<{ status: string; message: string }> {
+    const response = await httpClient.delete<{ status: string; message: string }>(`/admin/genres/${id}`)
+    return response.data
+  }
+
+  static async getTags(params?: {
+    q?: string
+    sort_by?: string
+    sort_dir?: string
+    page?: number
+    per_page?: number | string
+  }): Promise<PaginatedResponse<import('@/types/admin').AdminTag>> {
+    const response = await httpClient.get<PaginatedResponse<import('@/types/admin').AdminTag>>(
+      '/admin/tags',
+      { params }
+    )
+    return response.data
+  }
+
+  static async createTag(payload: import('@/types/admin').CreateTagPayload): Promise<{ status: string; message: string; data: import('@/types/admin').AdminTag }> {
+    const response = await httpClient.post<{ status: string; message: string; data: import('@/types/admin').AdminTag }>(
+      '/admin/tags',
+      payload
+    )
+    return response.data
+  }
+
+  static async updateTag(
+    id: number | string,
+    payload: import('@/types/admin').UpdateTagPayload
+  ): Promise<{ status: string; message: string; data: import('@/types/admin').AdminTag }> {
+    const response = await httpClient.put<{ status: string; message: string; data: import('@/types/admin').AdminTag }>(
+      `/admin/tags/${id}`,
+      payload
+    )
+    return response.data
+  }
+
+  static async deleteTag(id: number | string): Promise<{ status: string; message: string }> {
+    const response = await httpClient.delete<{ status: string; message: string }>(`/admin/tags/${id}`)
+    return response.data
+  }
+
+  // =========================================================
+  // Module D & E: Catalog Management (All Comics & Chapters)
+  // =========================================================
+  static async getComicsCatalog(
+    params?: import('@/types/admin').ListAdminComicsCatalogParams
+  ): Promise<PaginatedResponse<import('@/types/admin').AdminComicCatalogItem>> {
+    const response = await httpClient.get<PaginatedResponse<import('@/types/admin').AdminComicCatalogItem>>(
+      '/admin/comics',
+      { params }
+    )
+    return response.data
+  }
+
+  static async getComicCatalogDetail(id: number | string): Promise<{ status: string; data: import('@/types/admin').AdminComicDetail }> {
+    const response = await httpClient.get<{ status: string; data: import('@/types/admin').AdminComicDetail }>(`/admin/comics/${id}`)
+    return response.data
+  }
+
+  static async getComicDetail(id: number | string): Promise<{ status: string; data: import('@/types/admin').AdminComicDetail }> {
+    return this.getComicCatalogDetail(id)
+  }
+
+  static async getComicChapters(
+    comicId: number | string,
+    params?: import('@/types/admin').ListAdminComicChaptersParams
+  ): Promise<PaginatedResponse<import('@/types/admin').AdminComicChapterItem> & { comic?: { id: number; title: string; slug: string } }> {
+    const response = await httpClient.get<
+      PaginatedResponse<import('@/types/admin').AdminComicChapterItem> & { comic?: { id: number; title: string; slug: string } }
+    >(`/admin/comics/${comicId}/chapters`, { params })
+    return response.data
+  }
+
+  static async getComicChapterDetail(
+    comicId: number | string,
+    chapterId: number | string
+  ): Promise<{ status: string; comic?: { id: number; title: string; slug: string; user_id: number }; data: import('@/types/admin').AdminComicChapterDetail }> {
+    const response = await httpClient.get<{
+      status: string
+      comic?: { id: number; title: string; slug: string; user_id: number }
+      data: import('@/types/admin').AdminComicChapterDetail
+    }>(`/admin/comics/${comicId}/chapters/${chapterId}`)
+    return response.data
+  }
+
+  static async updateComicChapterStatus(
+    comicId: number | string,
+    chapterId: number | string,
+    payload: { status: string; rejection_reason?: string }
+  ): Promise<{ status: string; message: string; data: import('@/types/admin').AdminComicChapterItem }> {
+    const response = await httpClient.patch<{ status: string; message: string; data: import('@/types/admin').AdminComicChapterItem }>(
+      `/admin/comics/${comicId}/chapters/${chapterId}/status`,
+      payload
+    )
+    return response.data
+  }
+
+  static async updateComicStatus(
+    id: number | string,
+    payload: { status?: string; is_featured?: boolean }
+  ): Promise<{ status: string; message: string; data: any }> {
+    const response = await httpClient.patch<{ status: string; message: string; data: any }>(
+      `/admin/comics/${id}/status`,
+      payload
+    )
+    return response.data
+  }
+
+  static async updateComicVip(
+    id: number | string,
+    payload: { is_vip: boolean; price: number }
+  ): Promise<{ status: string; message: string; data: any }> {
+    const response = await httpClient.patch<{ status: string; message: string; data: any }>(
+      `/admin/comics/${id}/vip`,
+      payload
+    )
+    return response.data
+  }
+
+  static async updateComicApprovalStatus(
+    id: number | string,
+    payload: { approval_status: string; rejection_reason?: string; chapter_ids?: number[] }
+  ): Promise<{ status: string; message: string; data: any }> {
+    const response = await httpClient.patch<{ status: string; message: string; data: any }>(
+      `/admin/comics/${id}/approval-status`,
+      payload
+    )
+    return response.data
+  }
+
+  static async getChaptersCatalog(params?: {
+    comic_id?: number | string
+    status?: string
+    q?: string
+    sort_by?: string
+    sort_dir?: string
+    page?: number
+    per_page?: number
+  }): Promise<PaginatedResponse<import('@/types/admin').AdminChapterCatalogItem>> {
+    const response = await httpClient.get<PaginatedResponse<import('@/types/admin').AdminChapterCatalogItem>>(
+      '/admin/chapters',
+      { params }
+    )
+    return response.data
+  }
+
+  static async getChapterCatalogDetail(id: number | string): Promise<{ status: string; data: any }> {
+    const response = await httpClient.get<{ status: string; data: any }>(`/admin/chapters/${id}`)
+    return response.data
+  }
+
+  static async updateChapterCatalogStatus(
+    id: number | string,
+    payload: { status: string; rejection_reason?: string }
+  ): Promise<{ status: string; message: string; data: any }> {
+    const response = await httpClient.patch<{ status: string; message: string; data: any }>(
+      `/admin/chapters/${id}/status`,
+      payload
+    )
+    return response.data
+  }
+
+  // =========================================================
+  // Module F & G: Wallet Ledger & VIP Purchases
+  // =========================================================
+  static async getWallets(params?: {
+    q?: string
+    sort_by?: string
+    sort_dir?: string
+    page?: number
+    per_page?: number
+  }): Promise<PaginatedResponse<import('@/types/admin').AdminWalletItem>> {
+    const response = await httpClient.get<PaginatedResponse<import('@/types/admin').AdminWalletItem>>(
+      '/admin/wallets',
+      { params }
+    )
+    return response.data
+  }
+
+  static async getCoinTransactions(params?: {
+    user_id?: number | string
+    type?: string
+    q?: string
+    page?: number
+    per_page?: number
+  }): Promise<PaginatedResponse<import('@/types/admin').AdminCoinTransactionItem>> {
+    const response = await httpClient.get<PaginatedResponse<import('@/types/admin').AdminCoinTransactionItem>>(
+      '/admin/coin-transactions',
+      { params }
+    )
+    return response.data
+  }
+
+  static async getComicPurchases(params?: {
+    status?: string
+    user_id?: number | string
+    comic_id?: number | string
+    q?: string
+    page?: number
+    per_page?: number
+  }): Promise<PaginatedResponse<import('@/types/admin').AdminComicPurchaseItem>> {
+    const response = await httpClient.get<PaginatedResponse<import('@/types/admin').AdminComicPurchaseItem>>(
+      '/admin/comic-purchases',
+      { params }
+    )
+    return response.data
+  }
+
+  static async refundPurchase(
+    payload: import('@/types/admin').AdminRefundPayload
+  ): Promise<{ status: string; message: string; data: any }> {
+    const response = await httpClient.post<{ status: string; message: string; data: any }>(
+      '/admin/comic-purchases/refund',
+      payload
+    )
+    return response.data
+  }
+
+  // =========================================================
+  // Module H: System Broadcast Notifications
+  // =========================================================
+  static async broadcastNotification(
+    payload: import('@/types/admin').AdminBroadcastPayload
+  ): Promise<{ status: string; message: string; data: any }> {
+    const response = await httpClient.post<{ status: string; message: string; data: any }>(
+      '/admin/notifications/broadcast',
+      payload
+    )
+    return response.data
+  }
+
+  static async getBroadcastsHistory(params?: {
+    page?: number
+    per_page?: number
+  }): Promise<PaginatedResponse<import('@/types/admin').AdminBroadcastHistoryItem>> {
+    const response = await httpClient.get<PaginatedResponse<import('@/types/admin').AdminBroadcastHistoryItem>>(
+      '/admin/notifications/broadcasts',
+      { params }
+    )
+    return response.data
+  }
 }

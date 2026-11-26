@@ -2,11 +2,19 @@
 
 use App\Http\Controllers\Api\AccountProfileController;
 use App\Http\Controllers\Api\AdminBannerController;
+use App\Http\Controllers\Api\AdminBroadcastNotificationController;
+use App\Http\Controllers\Api\AdminChapterCatalogController;
 use App\Http\Controllers\Api\AdminChapterModerationController;
+use App\Http\Controllers\Api\AdminComicCatalogController;
 use App\Http\Controllers\Api\AdminComicModerationController;
 use App\Http\Controllers\Api\AdminCreatorApplicationController;
 use App\Http\Controllers\Api\AdminCreatorController;
+use App\Http\Controllers\Api\AdminDashboardController;
+use App\Http\Controllers\Api\AdminGenreController;
+use App\Http\Controllers\Api\AdminTagController;
+use App\Http\Controllers\Api\AdminUserController;
 use App\Http\Controllers\Api\AdminVipModerationController;
+use App\Http\Controllers\Api\AdminWalletLedgerController;
 use App\Http\Controllers\Api\AiSearchController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BannerController;
@@ -236,6 +244,79 @@ Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/creat
     Route::post('/{id}/revoke', [AdminCreatorController::class, 'revoke']);
     Route::post('/{id}/grant-reapply', [AdminCreatorController::class, 'grantReapply']);
     Route::post('/{id}/revoke-reapply', [AdminCreatorController::class, 'revokeReapply']);
+});
+
+// Admin Dashboard stats
+Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/dashboard')->group(function () {
+    Route::get('/stats', [AdminDashboardController::class, 'stats']);
+});
+
+// Admin Users Management
+Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/users')->group(function () {
+    Route::get('/', [AdminUserController::class, 'index']);
+    Route::get('/{id}', [AdminUserController::class, 'show']);
+    Route::patch('/{id}/toggle-active', [AdminUserController::class, 'toggleActive']);
+    Route::patch('/{id}/role', [AdminUserController::class, 'updateRole']);
+});
+
+// Admin Genres Management
+Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/genres')->group(function () {
+    Route::get('/', [AdminGenreController::class, 'index']);
+    Route::post('/', [AdminGenreController::class, 'store']);
+    Route::get('/{id}', [AdminGenreController::class, 'show']);
+    Route::match(['put', 'patch'], '/{id}', [AdminGenreController::class, 'update']);
+    Route::patch('/{id}/toggle-status', [AdminGenreController::class, 'toggleStatus']);
+    Route::delete('/{id}', [AdminGenreController::class, 'destroy']);
+});
+
+// Admin Tags Management
+Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/tags')->group(function () {
+    Route::get('/', [AdminTagController::class, 'index']);
+    Route::post('/', [AdminTagController::class, 'store']);
+    Route::get('/{id}', [AdminTagController::class, 'show']);
+    Route::match(['put', 'patch'], '/{id}', [AdminTagController::class, 'update']);
+    Route::delete('/{id}', [AdminTagController::class, 'destroy']);
+});
+
+// Admin Comics Catalog Management
+Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/comics')->group(function () {
+    Route::get('/', [AdminComicCatalogController::class, 'index']);
+    Route::get('/{id}', [AdminComicCatalogController::class, 'show']);
+    Route::patch('/{id}/status', [AdminComicCatalogController::class, 'updateStatus']);
+    Route::patch('/{id}/vip', [AdminComicCatalogController::class, 'updateVip']);
+    Route::patch('/{id}/approval-status', [AdminComicCatalogController::class, 'updateApprovalStatus']);
+
+    // Contextual Chapter Management under Comic
+    Route::get('/{comicId}/chapters', [AdminChapterCatalogController::class, 'indexForComic']);
+    Route::get('/{comicId}/chapters/{chapterId}', [AdminChapterCatalogController::class, 'showForComic']);
+    Route::patch('/{comicId}/chapters/{chapterId}/status', [AdminChapterCatalogController::class, 'updateStatusForComic']);
+});
+
+// Admin Chapters Catalog Management
+Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/chapters')->group(function () {
+    Route::get('/', [AdminChapterCatalogController::class, 'index']);
+    Route::get('/{id}', [AdminChapterCatalogController::class, 'show']);
+    Route::patch('/{id}/status', [AdminChapterCatalogController::class, 'updateStatus']);
+});
+
+// Admin Wallets & Ledger
+Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/wallets')->group(function () {
+    Route::get('/', [AdminWalletLedgerController::class, 'wallets']);
+});
+
+Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/coin-transactions')->group(function () {
+    Route::get('/', [AdminWalletLedgerController::class, 'transactions']);
+});
+
+Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/comic-purchases')->group(function () {
+    Route::get('/', [AdminWalletLedgerController::class, 'purchases']);
+    Route::post('/refund', [AdminWalletLedgerController::class, 'refund']);
+});
+
+// Admin Broadcast Notifications
+Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/notifications')->group(function () {
+    Route::post('/broadcast', [AdminBroadcastNotificationController::class, 'broadcast']);
+    Route::get('/broadcasts', [AdminBroadcastNotificationController::class, 'history']);
 });
 
 
