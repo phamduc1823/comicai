@@ -56,6 +56,9 @@ const selectedComicForApprove = ref<AdminModerationComic | null>(null)
 const approveActionType = ref<'comic' | 'comic_changes'>('comic')
 const isApproveConfirmOpen = ref(false)
 const isApproveSubmitting = ref(false)
+const pendingChaptersForApprove = ref<Array<{ id: number; chapter_number: string; title: string | null; images_count?: number }>>([])
+const selectedApproveChapterIds = ref<number[]>([])
+const isLoadingPendingChapters = ref(false)
 
 // Context tracking for modal restoration on cancellation
 const restoredParentModal = ref<'detail' | 'diff' | null>(null)
@@ -191,7 +194,7 @@ function closeDiffModal() {
 }
 
 // Approve modal handlers
-function triggerApproveComic(comic: AdminModerationComic) {
+async function triggerApproveComic(comic: AdminModerationComic) {
   // Close parent modal before opening confirm modal to prevent backdrop stacking and Escape key conflicts
   if (isDetailModalOpen.value) {
     restoredParentModal.value = 'detail'
@@ -205,7 +208,41 @@ function triggerApproveComic(comic: AdminModerationComic) {
 
   selectedComicForApprove.value = comic
   approveActionType.value = 'comic'
+  selectedApproveChapterIds.value = []
+  pendingChaptersForApprove.value = []
   isApproveConfirmOpen.value = true
+  isLoadingPendingChapters.value = true
+
+  try {
+    const res = await AdminService.getModerationChapters({ comic_id: comic.id, per_page: 50 })
+    pendingChaptersForApprove.value = (res.data || []).map((chap: any) => ({
+      id: chap.id,
+      chapter_number: String(chap.chapter_number),
+      title: chap.title || null,
+      images_count: chap.images ? chap.images.length : 0,
+    }))
+  } catch {
+    pendingChaptersForApprove.value = []
+  } finally {
+    isLoadingPendingChapters.value = false
+  }
+}
+
+function selectAllApproveChapters() {
+  selectedApproveChapterIds.value = pendingChaptersForApprove.value.map((c) => c.id)
+}
+
+function deselectAllApproveChapters() {
+  selectedApproveChapterIds.value = []
+}
+
+function toggleApproveChapter(id: number) {
+  const idx = selectedApproveChapterIds.value.indexOf(id)
+  if (idx > -1) {
+    selectedApproveChapterIds.value.splice(idx, 1)
+  } else {
+    selectedApproveChapterIds.value.push(id)
+  }
 }
 
 function triggerApproveChanges(comic: AdminModerationComic) {
@@ -264,8 +301,9 @@ async function handleConfirmApprove() {
       await AdminService.approveComicChanges(targetComic.id)
       showToast(`Đã duyệt bản chỉnh sửa của truyện "${targetComic.title}" thành công.`)
     } else {
-      await AdminService.approveComic(targetComic.id)
-      showToast(`Đã phê duyệt bộ truyện "${targetComic.title}" thành công.`)
+      const chapIds = selectedApproveChapterIds.value.length > 0 ? selectedApproveChapterIds.value : undefined
+      const res = await AdminService.approveComic(targetComic.id, chapIds)
+      showToast(res.message || `Đã phê duyệt bộ truyện "${targetComic.title}" thành công.`)
     }
 
     isApproveConfirmOpen.value = false
@@ -830,9 +868,103 @@ onUnmounted(() => {
       @close="handleCancelReject"
     />
 
-    <!-- Confirm Modal for Approving (Comic or Changes) -->
+    <!-- Confirm Modal for Approving Comic with Optional Chapter Selection (CAI-ADMIN-03) -->
+    <div
+      v-if="isApproveConfirmOpen && approveActionType === 'comic'"
+      class="modal-backdrop-custom"
+      @click.self="handleCancelApprove"
+    >
+      <div class="modal-box-approve" role="dialog" aria-modal="true" aria-labelledby="admin-approve-modal-title">
+        <div class="modal-header-custom">
+          <div>
+            <h3 id="admin-approve-modal-title" class="modal-title-custom">Phê duyệt truyện: {{ selectedComicForApprove?.title }}</h3>
+            <p class="modal-subtitle-custom">
+              Chọn các chương chờ duyệt để xuất bản cùng bộ truyện. Nếu không chọn chương nào, chỉ phê duyệt bộ truyện.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="btn-close-custom"
+            :disabled="isApproveSubmitting"
+            aria-label="Đóng modal"
+            @click="handleCancelApprove"
+          >✕</button>
+        </div>
+
+        <div class="modal-body-scroll-custom">
+          <div v-if="isLoadingPendingChapters" class="chapters-loading-box">
+            <span class="spinner-icon">⏳</span> Đang tải danh sách chương chờ duyệt...
+          </div>
+
+          <div v-else-if="pendingChaptersForApprove.length === 0" class="empty-chapters-note">
+            <span class="note-icon">ℹ️</span>
+            <div>
+              <strong>Không có chương nào đang ở trạng thái Chờ duyệt.</strong>
+              <p>Xác nhận sẽ chuyển trạng thái bộ truyện sang Đã duyệt (Approved) để Creator có thể bắt đầu đăng chương.</p>
+            </div>
+          </div>
+
+          <div v-else class="chapters-selection-box">
+            <div class="chapters-selection-toolbar">
+              <div class="selection-counts">
+                Đã chọn: <span class="badge-count">{{ selectedApproveChapterIds.length }}</span> / {{ pendingChaptersForApprove.length }} chương chờ duyệt
+              </div>
+              <div class="selection-actions">
+                <button type="button" class="btn-tool" :disabled="isApproveSubmitting" @click="selectAllApproveChapters">
+                  Chọn tất cả
+                </button>
+                <button type="button" class="btn-tool" :disabled="isApproveSubmitting" @click="deselectAllApproveChapters">
+                  Bỏ chọn tất cả
+                </button>
+              </div>
+            </div>
+
+            <div class="chapters-checklist">
+              <label
+                v-for="chap in pendingChaptersForApprove"
+                :key="chap.id"
+                class="chapter-check-item"
+                :class="{ 'is-selected': selectedApproveChapterIds.includes(chap.id) }"
+              >
+                <input
+                  type="checkbox"
+                  :checked="selectedApproveChapterIds.includes(chap.id)"
+                  :disabled="isApproveSubmitting"
+                  @change="toggleApproveChapter(chap.id)"
+                />
+                <div class="chapter-info">
+                  <span class="chap-num">#{{ chap.chapter_number }}</span>
+                  <span class="chap-title">{{ chap.title || 'Chương không tên' }}</span>
+                </div>
+                <div class="chapter-meta">
+                  <span class="badge-status-pill pending">Chờ duyệt</span>
+                  <span class="badge-images">{{ chap.images_count || 0 }} ảnh</span>
+                </div>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer-custom">
+          <button type="button" class="btn-modal-cancel" :disabled="isApproveSubmitting" @click="handleCancelApprove">
+            Hủy bỏ
+          </button>
+          <button
+            type="button"
+            class="btn-modal-confirm-green"
+            :disabled="isApproveSubmitting || isLoadingPendingChapters"
+            @click="handleConfirmApprove"
+          >
+            {{ isApproveSubmitting ? 'Đang duyệt...' : (selectedApproveChapterIds.length > 0 ? `Duyệt truyện cùng ${selectedApproveChapterIds.length} chương` : 'Xác nhận duyệt bộ truyện') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Confirm Modal for Approving Comic Changes -->
     <ConfirmModal
-      :is-open="isApproveConfirmOpen"
+      v-if="isApproveConfirmOpen && approveActionType === 'comic_changes'"
+      :is-open="isApproveConfirmOpen && approveActionType === 'comic_changes'"
       :title="approveModalTitle"
       :message="approveModalMessage"
       confirm-text="Xác nhận duyệt"
@@ -1546,5 +1678,281 @@ onUnmounted(() => {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+/* Admin Approve Modal with Chapter Selection (CAI-ADMIN-03) */
+.modal-backdrop-custom {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--spacing-md, 16px);
+}
+
+.modal-box-approve {
+  background-color: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 620px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.modal-header-custom {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 20px;
+  border-bottom: 1px solid #334155;
+  gap: 16px;
+}
+
+.modal-title-custom {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #f8fafc;
+  margin: 0;
+}
+
+.modal-subtitle-custom {
+  font-size: 0.8125rem;
+  color: #94a3b8;
+  margin: 4px 0 0 0;
+  line-height: 1.4;
+}
+
+.btn-close-custom {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.btn-close-custom:hover:not(:disabled) {
+  background-color: #334155;
+  color: #fff;
+}
+
+.modal-body-scroll-custom {
+  padding: 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.chapters-loading-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 30px 0;
+  color: #94a3b8;
+  font-size: 0.875rem;
+}
+
+.empty-chapters-note {
+  display: flex;
+  gap: 12px;
+  background-color: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 14px 16px;
+  font-size: 0.875rem;
+  color: #cbd5e1;
+  line-height: 1.5;
+}
+
+.empty-chapters-note .note-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.empty-chapters-note p {
+  margin: 4px 0 0;
+  font-size: 0.8125rem;
+  color: #94a3b8;
+}
+
+.chapters-selection-box {
+  display: flex;
+  flex-direction: column;
+}
+
+.chapters-selection-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  gap: 12px;
+}
+
+.selection-counts {
+  font-size: 0.875rem;
+  color: #cbd5e1;
+}
+
+.badge-count {
+  font-weight: 700;
+  color: #34d399;
+}
+
+.selection-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-tool {
+  background: #0f172a;
+  border: 1px solid #334155;
+  color: #cbd5e1;
+  font-size: 0.8125rem;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-tool:hover:not(:disabled) {
+  border-color: #34d399;
+  color: #fff;
+}
+
+.chapters-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.chapter-check-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background-color: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.chapter-check-item:hover {
+  border-color: rgba(52, 211, 153, 0.4);
+  background-color: rgba(52, 211, 153, 0.04);
+}
+
+.chapter-check-item.is-selected {
+  border-color: #10b981;
+  background-color: rgba(16, 185, 129, 0.08);
+}
+
+.chapter-info {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.chap-num {
+  font-weight: 700;
+  color: #34d399;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.chap-title {
+  color: #f8fafc;
+  font-size: 0.875rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chapter-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.badge-status-pill.pending {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-weight: 600;
+  background-color: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+}
+
+.badge-images {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  background-color: rgba(255, 255, 255, 0.05);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.modal-footer-custom {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid #334155;
+  background-color: rgba(15, 23, 42, 0.5);
+}
+
+.btn-modal-cancel {
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid #334155;
+  color: #cbd5e1;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.15s ease;
+}
+
+.btn-modal-cancel:hover:not(:disabled) {
+  border-color: #94a3b8;
+  color: #fff;
+}
+
+.btn-modal-confirm-green {
+  padding: 8px 20px;
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  border: none;
+  color: #fff;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.875rem;
+  transition: all 0.15s ease;
+}
+
+.btn-modal-confirm-green:hover:not(:disabled) {
+  opacity: 0.95;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
+}
+
+.btn-modal-confirm-green:disabled,
+.btn-modal-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

@@ -38,14 +38,21 @@ export class AdminService {
 
   /**
    * Approve a pending new comic.
+   * CAI-ADMIN-03: Supports optionally approving selected chapter IDs alongside the comic.
    * POST /api/admin/moderation/comics/{id}/approve
    */
   static async approveComic(
-    id: number | string
+    id: number | string,
+    chapterIds?: number[]
   ): Promise<ModerationActionResponse<AdminModerationComic>> {
     const encodedId = encodeURIComponent(String(id))
+    const payload: { chapter_ids?: number[] } = {}
+    if (chapterIds && chapterIds.length > 0) {
+      payload.chapter_ids = chapterIds
+    }
     const response = await httpClient.post<ModerationActionResponse<AdminModerationComic>>(
-      `/admin/moderation/comics/${encodedId}/approve`
+      `/admin/moderation/comics/${encodedId}/approve`,
+      payload
     )
     return response.data
   }

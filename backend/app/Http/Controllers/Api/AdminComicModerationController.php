@@ -7,7 +7,9 @@ use App\Http\Requests\RejectComicChangesRequest;
 use App\Http\Requests\RejectComicRequest;
 use App\Http\Resources\AdminModerationComicResource;
 use App\Jobs\GenerateComicEmbeddingJob;
+use App\Models\Chapter;
 use App\Models\Comic;
+use App\Services\NotificationService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -75,8 +77,9 @@ class AdminComicModerationController extends Controller
 
     /**
      * Approve a pending new comic.
+     * CAI-ADMIN-03: Supports optionally approving selected chapters alongside the comic.
      */
-    public function approve(Request $request, int|string $id): JsonResponse
+    public function approve(Request $request, int|string $id, NotificationService $notificationService): JsonResponse
     {
         $comic = Comic::findOrFail($id);
 
@@ -89,10 +92,44 @@ class AdminComicModerationController extends Controller
 
         $this->authorize('approve', $comic);
 
+        $validated = $request->validate([
+            'chapter_ids' => ['nullable', 'array'],
+            'chapter_ids.*' => ['integer', 'distinct'],
+        ]);
+
+        $selectedChapterIds = [];
+        if (! empty($validated['chapter_ids'])) {
+            $selectedChapterIds = array_values(array_unique(array_map('intval', $validated['chapter_ids'])));
+            $chapters = Chapter::whereIn('id', $selectedChapterIds)->get();
+
+            if ($chapters->count() !== count($selectedChapterIds)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Một hoặc nhiều chương được chọn không tồn tại.',
+                ], 422);
+            }
+
+            foreach ($chapters as $chap) {
+                if ((int) $chap->comic_id !== (int) $comic->id) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Một hoặc nhiều chương không thuộc bộ truyện này.',
+                    ], 422);
+                }
+
+                if ($chap->status !== 'pending') {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => "Chỉ có thể duyệt các chương đang chờ duyệt (Chương #{$chap->chapter_number} đang ở trạng thái '{$chap->status}').",
+                    ], 422);
+                }
+            }
+        }
+
         $statusError = null;
         $updatedComic = null;
 
-        DB::transaction(function () use ($id, $request, &$statusError, &$updatedComic) {
+        DB::transaction(function () use ($id, $request, $selectedChapterIds, &$statusError, &$updatedComic) {
             $locked = Comic::with(['genres', 'tags'])->where('id', $id)->lockForUpdate()->firstOrFail();
 
             if ($locked->approval_status !== 'pending') {
@@ -111,6 +148,18 @@ class AdminComicModerationController extends Controller
 
             $updatedComic = $locked;
 
+            if (! empty($selectedChapterIds)) {
+                Chapter::whereIn('id', $selectedChapterIds)
+                    ->lockForUpdate()
+                    ->update([
+                        'status' => 'published',
+                        'rejection_reason' => null,
+                        'approved_by' => $request->user()->id,
+                        'approved_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+            }
+
             $approvedComicId = (int) $locked->id;
             DB::afterCommit(function () use ($approvedComicId) {
                 GenerateComicEmbeddingJob::dispatch($approvedComicId);
@@ -126,17 +175,36 @@ class AdminComicModerationController extends Controller
 
         $updatedComic->load(['genres', 'tags', 'user:id,name,avatar_path', 'approver:id,name']);
 
+        // Notify creator with consolidated review result
+        $admin = $request->user();
+        if ($admin) {
+            $notificationService->notifyComicReviewResult(
+                comic: $updatedComic,
+                admin: $admin,
+                action: 'approved',
+                approvedChaptersCount: count($selectedChapterIds)
+            );
+        }
+
+        $approvedCount = count($selectedChapterIds);
+        $message = $approvedCount > 0
+            ? "Duyệt bộ truyện và {$approvedCount} chương thành công."
+            : 'Duyệt bộ truyện thành công.';
+
         return response()->json([
             'status' => 'success',
-            'message' => 'Duyệt bộ truyện thành công.',
+            'message' => $message,
             'data' => new AdminModerationComicResource($updatedComic),
+            'meta' => [
+                'approved_chapters_count' => $approvedCount,
+            ],
         ]);
     }
 
     /**
      * Reject a pending new comic with reason.
      */
-    public function reject(RejectComicRequest $request, int|string $id): JsonResponse
+    public function reject(RejectComicRequest $request, int|string $id, NotificationService $notificationService): JsonResponse
     {
         $comic = Comic::findOrFail($id);
 
@@ -181,6 +249,18 @@ class AdminComicModerationController extends Controller
         }
 
         $updatedComic->load(['genres', 'tags', 'user:id,name,avatar_path', 'approver:id,name']);
+
+        // Notify creator with rejection notification
+        $admin = $request->user();
+        if ($admin) {
+            $notificationService->notifyComicReviewResult(
+                comic: $updatedComic,
+                admin: $admin,
+                action: 'rejected',
+                approvedChaptersCount: 0,
+                reason: $validated['rejection_reason']
+            );
+        }
 
         return response()->json([
             'status' => 'success',
