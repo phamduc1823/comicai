@@ -323,10 +323,13 @@ class CreatorChapterController extends Controller
             ], 422);
         }
 
-        // Atomically reorder using temporary negative numbers to prevent unique constraint collisions
+        // Atomically reorder using temporary large offset to prevent unique constraint collisions (uk_chapter_images_page)
+        // Note: page_number is unsignedInteger, so negative numbers cause MySQL error 1264 Out of range.
         DB::transaction(function () use ($orderedIds) {
+            $tempOffset = 100000;
+
             foreach ($orderedIds as $index => $imgId) {
-                ChapterImage::where('id', $imgId)->update(['page_number' => -($index + 1)]);
+                ChapterImage::where('id', $imgId)->update(['page_number' => $tempOffset + $index + 1]);
             }
 
             foreach ($orderedIds as $index => $imgId) {
@@ -366,8 +369,9 @@ class CreatorChapterController extends Controller
 
             // Re-index remaining images sequentially to avoid gaps and avoid unique collisions
             $remaining = ChapterImage::where('chapter_id', $chapter->id)->orderBy('page_number', 'asc')->get();
+            $tempOffset = 100000;
             foreach ($remaining as $idx => $img) {
-                $img->page_number = -($idx + 1);
+                $img->page_number = $tempOffset + $idx + 1;
                 $img->save();
             }
             foreach ($remaining as $idx => $img) {
