@@ -204,8 +204,8 @@ class WalletService implements WalletServiceInterface
                 abort(404, 'Không tìm thấy giao dịch gốc.');
             }
 
-            if ($originalTx->type !== 'chapter_unlock') {
-                throw new RefundExceedsOriginalAmountException('Chỉ có thể hoàn tiền cho giao dịch mở khóa chương VIP.');
+            if ($originalTx->type !== 'chapter_unlock' && $originalTx->type !== 'comic_purchase') {
+                throw new RefundExceedsOriginalAmountException('Chỉ có thể hoàn tiền cho giao dịch mở khóa VIP.');
             }
 
             // Check if already refunded
@@ -238,10 +238,21 @@ class WalletService implements WalletServiceInterface
                 'reference_type' => CoinTransaction::class,
                 'reference_id' => $originalTx->id,
                 'refund_for_transaction_id' => $originalTx->id,
-                'description' => 'Hoàn Coin chương VIP: '.$reason,
+                'description' => 'Hoàn Coin VIP: '.$reason,
                 'idempotency_key' => $idempotencyKey,
                 'created_at' => now(),
             ]);
+
+            // Handle comic_purchase revocation
+            if ($originalTx->type === 'comic_purchase') {
+                $comicPurchase = \App\Models\ComicPurchase::where('transaction_id', $originalTx->id)->first();
+                if ($comicPurchase) {
+                    $comicPurchase->status = 'revoked';
+                    $comicPurchase->revoked_at = now();
+                    $comicPurchase->refund_transaction_id = $refundTx->id;
+                    $comicPurchase->save();
+                }
+            }
 
             $unlock = ChapterUnlock::where('transaction_id', $originalTx->id)->first();
             if (! $unlock && $originalTx->reference_type === Chapter::class) {

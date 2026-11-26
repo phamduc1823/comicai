@@ -43,7 +43,7 @@ class ChapterReaderResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
-        $isVip = (bool) $this->is_vip;
+        $isVip = (bool) ($this->vipContext['is_vip'] ?? $this->is_vip);
         $isUnlocked = $this->vipContext['is_unlocked'] ?? (! $isVip);
 
         $data = [
@@ -53,13 +53,16 @@ class ChapterReaderResource extends JsonResource
             'slug' => $this->slug,
             'is_vip' => $isVip,
             'is_unlocked' => $isUnlocked,
-            'price' => (int) ($this->price ?? 0),
+            'price' => (int) ($this->vipContext['comic_price'] ?? $this->price ?? 0),
+            'comic_price' => (int) ($this->vipContext['comic_price'] ?? 0),
             'views_count' => (int) $this->views_count,
             'comic' => $this->whenLoaded('comic', function () {
                 return [
                     'id' => $this->comic->id,
                     'title' => $this->comic->title,
                     'slug' => $this->comic->slug,
+                    'is_vip' => (bool) ($this->comic->is_vip ?? false),
+                    'price' => (int) ($this->comic->price ?? 0),
                 ];
             }),
             'images' => $isUnlocked

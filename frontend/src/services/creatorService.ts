@@ -63,6 +63,12 @@ export class CreatorService {
     if (payload.status) {
       formData.append('status', payload.status)
     }
+    if (payload.is_vip !== undefined) {
+      formData.append('is_vip', payload.is_vip ? '1' : '0')
+    }
+    if (payload.price !== undefined) {
+      formData.append('price', String(payload.price))
+    }
 
     payload.genres.forEach((genreId) => {
       formData.append('genres[]', String(genreId))
@@ -119,6 +125,12 @@ export class CreatorService {
     }
     if (payload.status !== undefined) {
       formData.append('status', payload.status)
+    }
+    if (payload.is_vip !== undefined) {
+      formData.append('is_vip', payload.is_vip ? '1' : '0')
+    }
+    if (payload.price !== undefined) {
+      formData.append('price', String(payload.price))
     }
 
     if (payload.genres && payload.genres.length > 0) {

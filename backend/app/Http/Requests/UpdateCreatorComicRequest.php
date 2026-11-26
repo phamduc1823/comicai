@@ -44,6 +44,8 @@ class UpdateCreatorComicRequest extends FormRequest
             'alternative_titles' => ['nullable', 'string', 'max:255'],
             'age_rating' => ['sometimes', 'nullable', 'string', 'in:all,13+,16+,18+'],
             'status' => ['sometimes', 'nullable', 'string', 'in:ongoing,completed'],
+            'is_vip' => ['sometimes', 'nullable', 'boolean'],
+            'price' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:500'],
             'genres' => ['sometimes', 'required', 'array', 'min:1'],
             'genres.*' => ['integer', 'exists:genres,id'],
             'tags' => ['nullable', 'array', 'max:10'],

@@ -25,10 +25,29 @@ import {
 } from '@/utils/chapter'
 import CommentSection from '@/components/community/CommentSection.vue'
 import ReportModal from '@/components/common/ReportModal.vue'
+import ComicPurchaseModal from '@/components/common/ComicPurchaseModal.vue'
+import { useWalletStore } from '@/stores/wallet'
+import type { PurchaseComicResult } from '@/types/wallet'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+const walletStore = useWalletStore()
+
+// VIP Comic Purchase state
+const isPurchaseModalOpen = ref(false)
+const purchaseSuccessMessage = ref<string | null>(null)
+
+function onComicPurchased(result: PurchaseComicResult) {
+  if (comic.value) {
+    comic.value.is_purchased = true
+  }
+  walletStore.updateBalance(result.remaining_balance)
+  purchaseSuccessMessage.value = 'Bạn đã mua trọn bộ truyện thành công! Thỏa sức đọc toàn bộ các chương.'
+  setTimeout(() => {
+    purchaseSuccessMessage.value = null
+  }, 6000)
+}
 
 // Data states
 const comic = ref<ComicDetail | null>(null)
@@ -790,6 +809,24 @@ onUnmounted(() => {
                   <span>Chưa có chương nào được phát hành công khai.</span>
                 </div>
 
+                <!-- VIP Comic Purchase Action Button -->
+                <div v-if="comic.is_vip" class="vip-comic-purchase-action">
+                  <div v-if="comic.is_purchased" class="vip-owned-badge" title="Bạn đã sở hữu bộ truyện này">
+                    <span class="owned-icon" aria-hidden="true">👑✓</span>
+                    <span>Đã sở hữu trọn bộ</span>
+                  </div>
+                  <button
+                    v-else-if="!isCreatorOfComic && authStore.userRole !== 'admin'"
+                    type="button"
+                    class="btn-buy-vip-comic"
+                    :aria-label="'Mua trọn bộ truyện VIP: ' + (comic.price || 0) + ' Coin'"
+                    @click="isPurchaseModalOpen = true"
+                  >
+                    <span class="btn-icon" aria-hidden="true">👑</span>
+                    <span>Mua trọn bộ VIP ({{ comic.price || 0 }} Coin)</span>
+                  </button>
+                </div>
+
                 <!-- User Library Actions: Follow & Bookmark -->
                 <div class="user-library-actions">
                   <!-- Follow Button -->
@@ -992,11 +1029,18 @@ onUnmounted(() => {
                     Chương {{ formatChapterNumber(chap.chapter_number) }}
                   </span>
                   <span
-                    v-if="chap.is_vip"
+                    v-if="chap.is_vip && !comic.is_purchased"
                     class="badge-vip"
-                    :title="'Chương VIP: ' + (chap.price || 0) + ' Coin'"
+                    :title="'Chương thuộc truyện VIP: ' + (comic.price || 0) + ' Coin'"
                   >
-                    👑 VIP ({{ chap.price || 0 }}C)
+                    👑 VIP
+                  </span>
+                  <span
+                    v-else-if="chap.is_vip && comic.is_purchased"
+                    class="badge-vip is-unlocked"
+                    title="Đã mở khóa toàn bộ"
+                  >
+                    👑 Đã mở khóa
                   </span>
                   <span
                     v-if="lastReadChapter && lastReadChapter.id === chap.id"
@@ -1039,6 +1083,18 @@ onUnmounted(() => {
       :reportable-id="comic.id"
       :target-title="`Bộ truyện: ${comic.title}`"
       @close="isReportModalOpen = false"
+    />
+
+    <!-- Comic Purchase Modal Component -->
+    <ComicPurchaseModal
+      v-if="comic && comic.is_vip"
+      :is-open="isPurchaseModalOpen"
+      :comic-id="comic.id"
+      :comic-title="comic.title"
+      :price="comic.price || 0"
+      :user-balance="walletStore.balance"
+      @close="isPurchaseModalOpen = false"
+      @purchased="onComicPurchased"
     />
   </div>
 </template>
@@ -1673,7 +1729,55 @@ onUnmounted(() => {
 .no-chapter-notice {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
-  padding: var(--spacing-xs) 0;
+  display: flex;
+  align-items: center;
+}
+
+/* VIP Comic Purchase Action */
+.vip-comic-purchase-action {
+  display: flex;
+  align-items: center;
+}
+
+.btn-buy-vip-comic {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 var(--spacing-lg);
+  background: linear-gradient(135deg, #eab308, #ca8a04);
+  color: #000;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  border: 1px solid rgba(234, 179, 8, 0.5);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 12px rgba(234, 179, 8, 0.35);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-buy-vip-comic:hover {
+  background: linear-gradient(135deg, #facc15, #eab308);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(234, 179, 8, 0.5);
+}
+
+.vip-owned-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  padding: 0 var(--spacing-md);
+  background: rgba(35, 134, 54, 0.15);
+  border: 1px solid #3fb950;
+  border-radius: var(--radius-md);
+  color: #3fb950;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.owned-icon {
+  font-size: 16px;
 }
 
 /* User Library Actions (Follow & Bookmark) */

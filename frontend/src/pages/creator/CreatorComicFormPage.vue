@@ -42,6 +42,8 @@ const authorName = ref('')
 const alternativeTitles = ref('')
 const ageRating = ref<AgeRating>('13+')
 const progressStatus = ref<ComicProgressStatus>('ongoing')
+const isVip = ref(false)
+const vipPrice = ref<number>(50)
 const description = ref('')
 const selectedGenres = ref<number[]>([])
 const selectedTags = ref<number[]>([])
@@ -63,7 +65,7 @@ function markDirty() {
 
 // Watch fields for dirty tracking
 watch(
-  [title, authorName, alternativeTitles, ageRating, progressStatus, description, selectedGenres, selectedTags, coverFile],
+  [title, authorName, alternativeTitles, ageRating, progressStatus, isVip, vipPrice, description, selectedGenres, selectedTags, coverFile],
   () => markDirty(),
   { deep: true }
 )
@@ -198,6 +200,8 @@ async function initializePage() {
       alternativeTitles.value = data.alternative_titles || ''
       ageRating.value = data.age_rating || '13+'
       progressStatus.value = data.status || 'ongoing'
+      isVip.value = Boolean(data.is_vip)
+      vipPrice.value = Number(data.price) || 50
       description.value = data.description || ''
       selectedGenres.value = data.genres ? data.genres.map((g) => g.id) : []
       selectedTags.value = data.tags ? data.tags.map((t) => t.id) : []
@@ -264,6 +268,8 @@ async function handleSubmit() {
         alternative_titles: alternativeTitles.value.trim() || null,
         age_rating: ageRating.value,
         status: progressStatus.value,
+        is_vip: isVip.value,
+        price: isVip.value ? vipPrice.value : 0,
         description: description.value.trim() || null,
         genres: selectedGenres.value,
         tags: selectedTags.value,
@@ -297,6 +303,8 @@ async function handleSubmit() {
         alternative_titles: alternativeTitles.value.trim() || null,
         age_rating: ageRating.value,
         status: progressStatus.value,
+        is_vip: isVip.value,
+        price: isVip.value ? vipPrice.value : 0,
         description: description.value.trim() || null,
         genres: selectedGenres.value,
         tags: selectedTags.value,
@@ -544,6 +552,45 @@ onUnmounted(() => {
                 <span v-if="fieldErrors.status" class="field-error" role="alert">
                   {{ fieldErrors.status[0] }}
                 </span>
+              </div>
+            </div>
+
+            <!-- VIP Pricing Row -->
+            <div class="form-row-2 vip-pricing-box">
+              <div class="form-group checkbox-group">
+                <label class="checkbox-label" for="comic-is-vip">
+                  <input
+                    id="comic-is-vip"
+                    v-model="isVip"
+                    type="checkbox"
+                    class="form-checkbox"
+                    :disabled="isComicPendingReview || isSubmitting"
+                  />
+                  <span class="checkbox-text font-bold text-yellow-500">👑 Đặt làm Truyện VIP (Thu phí bằng Coin)</span>
+                </label>
+                <p class="field-hint">
+                  Khi bật VIP, độc giả sẽ cần trả Coin một lần để mở khóa toàn bộ các chương hiện tại và tương lai của truyện này.
+                </p>
+              </div>
+
+              <div v-if="isVip" class="form-group" :class="{ 'has-error': fieldErrors.price }">
+                <label for="comic-price" class="form-label">
+                  Giá mua trọn bộ truyện (Coin) <span class="required-star">*</span>
+                </label>
+                <input
+                  id="comic-price"
+                  v-model.number="vipPrice"
+                  type="number"
+                  min="5"
+                  max="500"
+                  class="form-input"
+                  :disabled="isComicPendingReview || isSubmitting"
+                  placeholder="Ví dụ: 50"
+                />
+                <span v-if="fieldErrors.price" class="field-error" role="alert">
+                  {{ fieldErrors.price[0] }}
+                </span>
+                <p class="field-hint">Gợi ý từ 20 đến 100 Coin tùy độ dài tác phẩm.</p>
               </div>
             </div>
 

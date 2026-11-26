@@ -37,6 +37,8 @@ class StoreCreatorComicRequest extends FormRequest
             'alternative_titles' => ['nullable', 'string', 'max:255'],
             'age_rating' => ['nullable', 'string', 'in:all,13+,16+,18+'],
             'status' => ['nullable', 'string', 'in:ongoing,completed'],
+            'is_vip' => ['nullable', 'boolean'],
+            'price' => ['nullable', 'integer', 'min:0', 'max:500'],
             'genres' => ['required', 'array', 'min:1'],
             'genres.*' => ['integer', 'exists:genres,id'],
             'tags' => ['nullable', 'array', 'max:10'],

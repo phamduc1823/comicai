@@ -32,6 +32,8 @@ class Comic extends Model
         'views_count' => 0,
         'follows_count' => 0,
         'is_featured' => false,
+        'is_vip' => false,
+        'price' => 0,
     ];
 
     /**
@@ -53,6 +55,8 @@ class Comic extends Model
         'banner_path',
         'age_rating',
         'status',
+        'is_vip',
+        'price',
         'pending_changes',
         'ai_summary',
         'embedding',
@@ -67,6 +71,8 @@ class Comic extends Model
     protected function casts(): array
     {
         return [
+            'is_vip' => 'boolean',
+            'price' => 'integer',
             'pending_changes' => 'array',
             'embedding' => 'array',
             'is_featured' => 'boolean',
@@ -114,6 +120,14 @@ class Comic extends Model
     public function chapters(): HasMany
     {
         return $this->hasMany(Chapter::class, 'comic_id');
+    }
+
+    /**
+     * All purchase records for this comic.
+     */
+    public function purchases(): HasMany
+    {
+        return $this->hasMany(ComicPurchase::class, 'comic_id');
     }
 
     /**

@@ -19,6 +19,7 @@ class ComicDetailResource extends JsonResource
         $user = $request->user() ?? $request->user('sanctum');
         $isFollowed = false;
         $isBookmarked = false;
+        $isPurchased = false;
 
         if ($user) {
             if (isset($this->is_followed)) {
@@ -32,6 +33,8 @@ class ComicDetailResource extends JsonResource
             } else {
                 $isBookmarked = $this->bookmarks()->where('user_id', $user->id)->exists();
             }
+
+            $isPurchased = app(\App\Services\Contracts\ComicPurchaseServiceInterface::class)->hasPurchasedComic($user, $this->resource);
         }
 
         return [
@@ -51,6 +54,9 @@ class ComicDetailResource extends JsonResource
                 : null,
             'age_rating' => $this->age_rating,
             'status' => $this->status,
+            'is_vip' => (bool) $this->is_vip,
+            'price' => (int) ($this->price ?? 0),
+            'is_purchased' => $isPurchased,
             'views_count' => (int) $this->views_count,
             'follows_count' => (int) $this->follows_count,
             'is_followed' => $isFollowed,

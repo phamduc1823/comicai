@@ -16,19 +16,21 @@ class ChapterUnlockController extends Controller
 
     /**
      * Unlock a VIP chapter using coins.
+     * Note: In COMIC_PURCHASE_ONLY model, individual chapter purchase is deprecated.
+     * Direct users to purchase the whole comic instead.
      */
     public function unlock(UnlockChapterRequest $request, int|string $id): JsonResponse
     {
         $chapter = Chapter::findOrFail($id);
-        $idempotencyKey = $request->header('X-Idempotency-Key') ?? $request->input('idempotency_key');
+        $comic = $chapter->comic ?? \App\Models\Comic::find($chapter->comic_id);
 
-        $result = $this->chapterUnlockService->unlockChapter(
-            $request->user(),
-            $chapter,
-            $idempotencyKey,
-            $request->except(['idempotency_key'])
-        );
-
-        return response()->json($result, 200);
+        return response()->json([
+            'status' => 'error',
+            'message' => 'Hệ thống đã chuyển sang mô hình mua trọn bộ truyện VIP. Vui lòng mua toàn bộ truyện để đọc tất cả các chương!',
+            'error_code' => 'CHAPTER_UNLOCK_DEPRECATED',
+            'comic_id' => $comic?->id,
+            'comic_slug' => $comic?->slug,
+            'comic_price' => $comic?->price ?? 0,
+        ], 422);
     }
 }

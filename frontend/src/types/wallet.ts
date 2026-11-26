@@ -2,7 +2,7 @@
  * Types for Coin Wallet & VIP Chapter Unlock (Phase 5).
  */
 
-export type TransactionType = 'welcome_bonus' | 'faucet' | 'chapter_unlock' | 'refund'
+export type TransactionType = 'welcome_bonus' | 'faucet' | 'chapter_unlock' | 'comic_purchase' | 'refund'
 
 export interface WalletData {
   user_id: number
@@ -50,5 +50,15 @@ export interface UnlockChapterResult {
   remaining_balance: number
   is_unlocked: boolean
   already_unlocked: boolean
+  is_repurchase: boolean
+}
+
+export interface PurchaseComicResult {
+  comic_id: number
+  title: string
+  price_paid: number
+  remaining_balance: number
+  is_purchased: boolean
+  already_purchased: boolean
   is_repurchase: boolean
 }

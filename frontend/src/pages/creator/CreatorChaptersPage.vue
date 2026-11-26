@@ -289,19 +289,15 @@ let prevBodyOverflow = ''
 const formValues = reactive({
   chapter_number: '',
   title: '',
-  is_vip: false,
-  price: 10,
 })
 
 // Field-specific validation errors (e.g. from 422 or frontend checks)
 const formErrors = reactive<{
   chapter_number: string | null
   title: string | null
-  price: string | null
 }>({
   chapter_number: null,
   title: null,
-  price: null,
 })
 
 function handleChapterModalKeyDown(event: KeyboardEvent) {
@@ -328,11 +324,8 @@ watch(
 function resetForm() {
   formValues.chapter_number = ''
   formValues.title = ''
-  formValues.is_vip = false
-  formValues.price = 10
   formErrors.chapter_number = null
   formErrors.title = null
-  formErrors.price = null
   formSubmitError.value = null
   editingChapter.value = null
   isSubmittingForm.value = false
@@ -360,8 +353,6 @@ function openEditModal(chapter: CreatorChapter) {
   editingChapter.value = chapter
   formValues.chapter_number = getCleanChapterNumber(chapter.chapter_number)
   formValues.title = chapter.title || ''
-  formValues.is_vip = Boolean(chapter.is_vip)
-  formValues.price = chapter.price || 10
   formModalOpen.value = true
 }
 
@@ -408,15 +399,6 @@ function validateChapterForm(): boolean {
     isValid = false
   }
 
-  // price validation (required if is_vip, between 5 and 50)
-  if (formValues.is_vip) {
-    const p = Number(formValues.price)
-    if (isNaN(p) || p < 5 || p > 50) {
-      formErrors.price = 'Giá mở khóa chương VIP phải nằm trong khoảng từ 5 đến 50 Coin.'
-      isValid = false
-    }
-  }
-
   return isValid
 }
 
@@ -448,8 +430,6 @@ async function handleSubmitChapterForm() {
       const payload: CreateChapterPayload = {
         chapter_number: formValues.chapter_number.trim(),
         title: formValues.title.trim() || null,
-        is_vip: formValues.is_vip,
-        price: formValues.is_vip ? Number(formValues.price) : 0,
       }
       const res = await CreatorService.createChapter(comicId.value, payload)
       formModalOpen.value = false
@@ -461,8 +441,6 @@ async function handleSubmitChapterForm() {
       const payload: UpdateChapterPayload = {
         chapter_number: formValues.chapter_number.trim(),
         title: formValues.title.trim() || null,
-        is_vip: formValues.is_vip,
-        price: formValues.is_vip ? Number(formValues.price) : 0,
       }
       const res = await CreatorService.updateChapter(editingChapter.value.id, payload)
       formModalOpen.value = false
@@ -479,9 +457,6 @@ async function handleSubmitChapterForm() {
     }
     if (fieldValidationErrors.title && fieldValidationErrors.title.length > 0) {
       formErrors.title = fieldValidationErrors.title[0]
-    }
-    if (fieldValidationErrors.price && fieldValidationErrors.price.length > 0) {
-      formErrors.price = fieldValidationErrors.price[0]
     }
 
     // General or fallback error message
@@ -971,10 +946,9 @@ watch(
                       <span class="chapter-num-badge">
                         {{ formatChapterNumberDisplay(chap.chapter_number) }}
                       </span>
-                      <span v-if="chap.is_vip" class="table-vip-pill" :title="'Chương VIP: ' + (chap.price || 0) + ' Coin'">
-                        👑 VIP ({{ chap.price || 0 }}C)
+                      <span v-if="comic?.is_vip" class="table-vip-pill" title="Thuộc truyện VIP">
+                        👑 VIP
                       </span>
-                      <span v-else class="table-free-pill">Miễn phí</span>
                     </div>
                   </td>
 
@@ -1356,58 +1330,12 @@ watch(
                     </p>
                   </div>
 
-                  <!-- Field 3: VIP Configuration -->
-                  <div class="form-group vip-config-group">
-                    <label class="vip-checkbox-label">
-                      <input
-                        id="checkbox-is-vip"
-                        type="checkbox"
-                        v-model="formValues.is_vip"
-                        class="vip-checkbox-input"
-                        :disabled="
-                          isSubmittingForm ||
-                          (formModalMode === 'edit' &&
-                            editingChapter !== null &&
-                            editingChapter.status !== 'draft' &&
-                            editingChapter.status !== 'rejected')
-                        "
-                      />
-                      <span class="vip-checkbox-title">👑 Đặt làm chương VIP (Thu phí đọc bằng Coin)</span>
-                    </label>
-
-                    <!-- Price input (shown only when is_vip is true) -->
-                    <div v-if="formValues.is_vip" class="vip-price-box" :class="{ 'has-error': !!formErrors.price }">
-                      <div class="label-row">
-                        <label for="input-chapter-price" class="field-label">
-                          Giá mở khóa (Coin) <span class="required-mark">*</span>
-                        </label>
-                        <span class="field-hint">Từ 5 đến 50 Coin</span>
-                      </div>
-                      <input
-                        id="input-chapter-price"
-                        v-model.number="formValues.price"
-                        type="number"
-                        min="5"
-                        max="50"
-                        step="1"
-                        class="field-input"
-                        placeholder="Mặc định: 10 Coin"
-                        :disabled="
-                          isSubmittingForm ||
-                          (formModalMode === 'edit' &&
-                            editingChapter !== null &&
-                            editingChapter.status !== 'draft' &&
-                            editingChapter.status !== 'rejected')
-                        "
-                        @input="formErrors.price = null"
-                      />
-                      <p class="field-subtext">
-                        Độc giả sẽ dùng Coin để mở khóa đọc chương này vĩnh viễn (quy định từ 5 đến 50 Coin).
-                      </p>
-                      <p v-if="formErrors.price" class="field-error-msg" role="alert">
-                        {{ formErrors.price }}
-                      </p>
-                    </div>
+                  <!-- Comic VIP Notice (Chapters automatically follow comic VIP policy) -->
+                  <div v-if="comic?.is_vip" class="comic-vip-chapter-notice">
+                    <span class="notice-icon" aria-hidden="true">💎</span>
+                    <p class="notice-text">
+                      Bộ truyện này là <strong>Truyện VIP ({{ comic.price }} Coin)</strong>. Độc giả mua trọn bộ sẽ tự động được đọc tất cả các chương bao gồm chương này mà không cần cài đặt riêng lẻ.
+                    </p>
                   </div>
                 </div>
 
@@ -2583,42 +2511,31 @@ watch(
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.vip-config-group {
-  padding: 12px 14px;
-  background: rgba(245, 158, 11, 0.04);
-  border: 1px solid rgba(245, 158, 11, 0.2);
-  border-radius: var(--radius-md, 8px);
-  margin-top: 4px;
-}
-
-.vip-checkbox-label {
+.comic-vip-chapter-notice {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.vip-checkbox-input {
-  width: 18px;
-  height: 18px;
-  accent-color: #f59e0b;
-  cursor: pointer;
-}
-
-.vip-checkbox-title {
-  font-size: var(--font-size-sm, 13px);
-  font-weight: 600;
-  color: #f59e0b;
-}
-
-.vip-price-box {
+  padding: 12px 14px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: var(--radius-md, 8px);
   margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px dashed rgba(245, 158, 11, 0.25);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+}
+
+.comic-vip-chapter-notice .notice-icon {
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.comic-vip-chapter-notice .notice-text {
+  font-size: var(--font-size-xs, 12px);
+  color: var(--color-text-secondary, #cbd5e1);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.comic-vip-chapter-notice .notice-text strong {
+  color: #fbbf24;
 }
 
 /* ======================================================= */

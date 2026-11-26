@@ -17,8 +17,10 @@ use App\Policies\PostPolicy;
 use App\Policies\ReportPolicy;
 use App\Services\AiSearchService;
 use App\Services\ChapterUnlockService;
+use App\Services\ComicPurchaseService;
 use App\Services\Contracts\AiSearchServiceInterface;
 use App\Services\Contracts\ChapterUnlockServiceInterface;
+use App\Services\Contracts\ComicPurchaseServiceInterface;
 use App\Services\Contracts\EmbeddingServiceInterface;
 use App\Services\Contracts\WalletServiceInterface;
 use App\Services\FallbackSearchService;
@@ -65,6 +67,10 @@ class AppServiceProvider extends ServiceProvider
 
         $this->app->singleton(ChapterUnlockServiceInterface::class, function ($app) {
             return new ChapterUnlockService($app->make(WalletServiceInterface::class));
+        });
+
+        $this->app->singleton(ComicPurchaseServiceInterface::class, function ($app) {
+            return new ComicPurchaseService($app->make(WalletServiceInterface::class));
         });
     }
 

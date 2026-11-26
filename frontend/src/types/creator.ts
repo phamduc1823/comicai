@@ -53,6 +53,8 @@ export interface CreatorComic {
   views_count: number
   follows_count: number
   is_featured: boolean
+  is_vip?: boolean
+  price?: number
   ai_summary: string | null
   chapters_count: number
   published_chapters_count: number
@@ -95,6 +97,8 @@ export interface CreateComicPayload {
   alternative_titles?: string | null
   age_rating?: AgeRating
   status?: ComicProgressStatus
+  is_vip?: boolean
+  price?: number
   genres: number[]
   tags?: number[]
 }
@@ -110,6 +114,8 @@ export interface UpdateComicPayload {
   alternative_titles?: string | null
   age_rating?: AgeRating
   status?: ComicProgressStatus
+  is_vip?: boolean
+  price?: number
   genres?: number[]
   tags?: number[]
 }

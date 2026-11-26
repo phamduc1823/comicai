@@ -125,20 +125,27 @@ class ChapterController extends Controller
         ];
 
         // VIP access evaluation
+        $isComicVip = (bool) $comic->is_vip;
+        $isChapterVip = (bool) $chapter->is_vip;
+        $isVip = $isComicVip || $isChapterVip;
+
         $vipContext = [
-            'is_vip' => (bool) $chapter->is_vip,
+            'is_vip' => $isVip,
             'is_unlocked' => true,
+            'comic_price' => (int) ($comic->price ?? 0),
         ];
 
-        if ($chapter->is_vip) {
+        if ($isVip) {
             $user = $request->user('sanctum') ?? auth('sanctum')->user() ?? $request->user();
-            $unlockService = app(ChapterUnlockServiceInterface::class);
-            $canAccess = $unlockService->canAccessChapter($user, $chapter);
+            $purchaseService = app(\App\Services\Contracts\ComicPurchaseServiceInterface::class);
+            $canAccess = $purchaseService->canAccessChapter($user, $chapter);
 
             if ($canAccess) {
                 $vipContext['is_unlocked'] = true;
                 if ($user && ($user->role === 'admin' || $comic->user_id === $user->id)) {
                     $vipContext['bypass_reason'] = 'creator_or_admin';
+                } elseif ($user && $purchaseService->hasPurchasedComic($user, $comic)) {
+                    $vipContext['bypass_reason'] = 'comic_purchased';
                 }
             } else {
                 $vipContext['is_unlocked'] = false;

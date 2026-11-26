@@ -19,19 +19,37 @@ class WalletController extends Controller
     public function show(Request $request): JsonResponse
     {
         $user = $request->user();
-        $wallet = $this->walletService->getOrCreateWallet($user);
-        $faucetRemaining = $this->walletService->getRemainingFaucetCount($user);
 
-        return response()->json([
-            'status' => 'success',
-            'data' => [
-                'user_id' => $user->id,
-                'balance' => (int) $wallet->balance,
-                'currency' => 'COIN',
-                'faucet_available_today' => $faucetRemaining,
-                'updated_at' => $wallet->updated_at?->toISOString(),
-            ],
-        ]);
+        try {
+            $wallet = $this->walletService->getOrCreateWallet($user);
+            $faucetRemaining = $this->walletService->getRemainingFaucetCount($user);
+
+            return response()->json([
+                'status' => 'success',
+                'data' => [
+                    'user_id' => $user->id,
+                    'balance' => (int) $wallet->balance,
+                    'currency' => 'COIN',
+                    'faucet_available_today' => $faucetRemaining,
+                    'updated_at' => $wallet->updated_at?->toISOString(),
+                ],
+            ]);
+        } catch (\Illuminate\Database\QueryException $e) {
+            if ($e->getCode() === '42S02' || str_contains($e->getMessage(), "doesn't exist")) {
+                report($e);
+                return response()->json([
+                    'status' => 'success',
+                    'data' => [
+                        'user_id' => $user->id,
+                        'balance' => 0,
+                        'currency' => 'COIN',
+                        'faucet_available_today' => 0,
+                        'updated_at' => null,
+                    ],
+                ]);
+            }
+            throw $e;
+        }
     }
 
     /**

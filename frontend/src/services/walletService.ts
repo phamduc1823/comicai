@@ -4,6 +4,7 @@ import type {
   TransactionsResponseData,
   FaucetClaimResult,
   UnlockChapterResult,
+  PurchaseComicResult,
   TransactionType,
 } from '@/types/wallet'
 
@@ -53,7 +54,39 @@ export class WalletService {
   }
 
   /**
+   * Purchase a VIP comic using coins with idempotency protection.
+   */
+  static async purchaseComic(
+    comicIdOrSlug: number | string,
+    idempotencyKey?: string
+  ): Promise<ApiResponse<PurchaseComicResult>> {
+    const headers: Record<string, string> = {}
+    if (idempotencyKey) {
+      headers['X-Idempotency-Key'] = idempotencyKey
+    }
+    const response = await httpClient.post<ApiResponse<PurchaseComicResult>>(
+      `/comics/${comicIdOrSlug}/purchase`,
+      {},
+      { headers }
+    )
+    return response.data
+  }
+
+  /**
+   * Check comic VIP purchase status.
+   */
+  static async getComicPurchaseStatus(
+    comicIdOrSlug: number | string
+  ): Promise<ApiResponse<{ comic_id: number; is_vip: boolean; price: number; is_purchased: boolean }>> {
+    const response = await httpClient.get<ApiResponse<{ comic_id: number; is_vip: boolean; price: number; is_purchased: boolean }>>(
+      `/comics/${comicIdOrSlug}/purchase-status`
+    )
+    return response.data
+  }
+
+  /**
    * Unlock a VIP chapter using coins with idempotency protection.
+   * @deprecated In COMIC_PURCHASE_ONLY, use purchaseComic instead.
    */
   static async unlockChapter(
     chapterId: number | string,

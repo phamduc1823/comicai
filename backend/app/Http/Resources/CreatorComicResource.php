@@ -32,6 +32,8 @@ class CreatorComicResource extends JsonResource
                 : null,
             'age_rating' => $this->age_rating,
             'status' => $this->status,
+            'is_vip' => (bool) $this->is_vip,
+            'price' => (int) ($this->price ?? 0),
             'approval_status' => $this->approval_status,
             'rejection_reason' => $this->rejection_reason,
             'pending_changes' => $this->pending_changes,

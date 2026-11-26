@@ -27,35 +27,8 @@ class ChapterUnlockService implements ChapterUnlockServiceInterface
      */
     public function canAccessChapter(?User $user, Chapter $chapter): bool
     {
-        if (! $chapter->is_vip) {
-            return true;
-        }
-
-        if (! $user) {
-            return false;
-        }
-
-        if ($user->role === 'admin') {
-            return true;
-        }
-
-        // Check if user is the author of this comic
-        if ($chapter->relationLoaded('comic') && $chapter->comic) {
-            if ($chapter->comic->user_id === $user->id) {
-                return true;
-            }
-        } else {
-            $comicUserId = Comic::where('id', $chapter->comic_id)->value('user_id');
-            if ($comicUserId === $user->id) {
-                return true;
-            }
-        }
-
-        // Check active unlock
-        return ChapterUnlock::where('user_id', $user->id)
-            ->where('chapter_id', $chapter->id)
-            ->where('status', 'active')
-            ->exists();
+        // Delegate access evaluation to ComicPurchaseService
+        return app(\App\Services\Contracts\ComicPurchaseServiceInterface::class)->canAccessChapter($user, $chapter);
     }
 
     /**

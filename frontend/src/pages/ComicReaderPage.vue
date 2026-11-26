@@ -7,10 +7,10 @@ import { ReaderHistoryService } from '@/services/readerHistoryService'
 import { ReadingHistoryService } from '@/services/readingHistoryService'
 import { getErrorMessage, isNotFoundError } from '@/services/httpClient'
 import type { ChapterReader, ChapterSummary } from '@/types/catalog'
-import type { UnlockChapterResult } from '@/types/wallet'
+import type { PurchaseComicResult } from '@/types/wallet'
 import { formatChapterNumber, buildChapterUrl, compareChapterNumbers } from '@/utils/chapter'
 import CommentSection from '@/components/community/CommentSection.vue'
-import VipUnlockModal from '@/components/common/VipUnlockModal.vue'
+import ComicPurchaseModal from '@/components/common/ComicPurchaseModal.vue'
 import { useWalletStore } from '@/stores/wallet'
 
 const route = useRoute()
@@ -67,7 +67,7 @@ function handlePageError(imageId: number) {
   failedPages.value[imageId] = true
 }
 
-function handleChapterUnlocked(result: UnlockChapterResult) {
+function handleChapterUnlocked(result: PurchaseComicResult) {
   walletStore.updateBalance(result.remaining_balance)
   if (chapter.value) {
     chapter.value.is_unlocked = true
@@ -77,7 +77,7 @@ function handleChapterUnlocked(result: UnlockChapterResult) {
   if (slug && chapterNumber) {
     loadChapterReader(slug, chapterNumber)
   }
-  showUnlockToast('Mở khóa chương VIP thành công! Bạn có thể đọc ngay bây giờ.')
+  showUnlockToast('Mua trọn bộ truyện VIP thành công! Bạn có thể đọc toàn bộ các chương bây giờ.')
 }
 
 function showUnlockToast(msg: string) {
@@ -580,13 +580,13 @@ onUnmounted(() => {
       <!-- Main Reading Area (Vertical Scroll) -->
       <main class="reader-canvas" aria-label="Nội dung trang truyện">
         <!-- VIP Paywall Notice (When chapter is VIP and not yet unlocked) -->
-        <div v-if="chapter.is_vip && !chapter.is_unlocked" class="vip-paywall-card" role="region" aria-label="Khóa chương VIP">
+        <div v-if="chapter.is_vip && !chapter.is_unlocked" class="vip-paywall-card" role="region" aria-label="Khóa truyện VIP">
           <div class="paywall-crown-wrap" aria-hidden="true">
             <span class="paywall-crown">👑</span>
           </div>
-          <h2 class="paywall-title">Chương VIP</h2>
+          <h2 class="paywall-title">Truyện VIP Trọn Bộ</h2>
           <p class="paywall-subtitle">
-            Chương này yêu cầu <strong>{{ chapter.price }} Coin</strong> để mở khóa quyền đọc vĩnh viễn.
+            Bộ truyện này yêu cầu <strong>{{ chapter.comic_price || chapter.price }} Coin</strong> để mua trọn bộ quyền đọc vĩnh viễn (bao gồm tất cả chương hiện tại và chương mới sau này).
           </p>
 
           <!-- Authenticated Reader State -->
@@ -597,20 +597,20 @@ onUnmounted(() => {
             </div>
 
             <!-- Sufficient Balance -->
-            <div v-if="walletStore.balance >= (chapter.price || 0)" class="paywall-actions">
+            <div v-if="walletStore.balance >= (chapter.comic_price || chapter.price || 0)" class="paywall-actions">
               <button
                 type="button"
                 class="btn-unlock-large"
                 @click="isUnlockModalOpen = true"
               >
-                Mở khóa ngay ({{ chapter.price }} Coin) 🔓
+                Mua trọn bộ ngay ({{ chapter.comic_price || chapter.price }} Coin) 👑
               </button>
             </div>
 
             <!-- Insufficient Balance -->
             <div v-else class="paywall-insufficient">
               <p class="insufficient-msg">
-                Số dư hiện tại không đủ (còn thiếu {{ (chapter.price || 0) - walletStore.balance }} Coin).
+                Số dư hiện tại không đủ (còn thiếu {{ (chapter.comic_price || chapter.price || 0) - walletStore.balance }} Coin).
               </p>
               <div class="insufficient-actions">
                 <button
@@ -632,12 +632,12 @@ onUnmounted(() => {
 
           <!-- Guest State -->
           <div v-else class="paywall-guest-box">
-            <p class="guest-msg">Vui lòng đăng nhập để mở khóa chương truyện VIP bằng Coin.</p>
+            <p class="guest-msg">Vui lòng đăng nhập để mua truyện VIP bằng Coin.</p>
             <RouterLink
               :to="'/login?redirect=' + encodeURIComponent(route.fullPath)"
               class="btn-login-to-unlock"
             >
-              Đăng nhập để mở khóa →
+              Đăng nhập để mua truyện →
             </RouterLink>
           </div>
         </div>
@@ -729,18 +729,16 @@ onUnmounted(() => {
       </footer>
     </div>
 
-    <!-- VIP Unlock Confirmation Modal -->
-    <VipUnlockModal
-      v-if="chapter && chapter.is_vip && !chapter.is_unlocked"
+    <!-- VIP Comic Purchase Confirmation Modal -->
+    <ComicPurchaseModal
+      v-if="chapter && chapter.is_vip && !chapter.is_unlocked && chapter.comic"
       :is-open="isUnlockModalOpen"
-      :chapter-id="chapter.id"
-      :chapter-number="chapter.chapter_number"
-      :chapter-title="chapter.title"
+      :comic-id="chapter.comic.id"
       :comic-title="chapter.comic.title"
-      :price="chapter.price || 0"
+      :price="chapter.comic_price || chapter.price || 0"
       :user-balance="walletStore.balance"
       @close="isUnlockModalOpen = false"
-      @unlocked="handleChapterUnlocked"
+      @purchased="handleChapterUnlocked"
     />
   </div>
 </template>

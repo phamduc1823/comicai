@@ -38,6 +38,9 @@ export interface ComicListItem {
   views_count: number
   follows_count: number
   is_featured: boolean
+  is_vip?: boolean
+  price?: number
+  is_purchased?: boolean
   published_chapters_count: number
   genres: Genre[]
   tags: Tag[]
@@ -124,6 +127,7 @@ export interface ChapterReader {
   is_vip?: boolean
   is_unlocked?: boolean
   price?: number
+  comic_price?: number
   views_count: number
   comic: ReaderComicSummary
   images: ChapterImage[]
