@@ -2,16 +2,17 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Database\Factories\UserFactory;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-class User extends Authenticatable
+class User extends Authenticatable implements MustVerifyEmail
 {
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, Notifiable;
@@ -209,5 +210,45 @@ class User extends Authenticatable
     public function chapterUnlocks(): HasMany
     {
         return $this->hasMany(ChapterUnlock::class, 'user_id');
+    }
+
+    /**
+     * Comics purchased by this user.
+     */
+    public function comicPurchases(): HasMany
+    {
+        return $this->hasMany(ComicPurchase::class, 'user_id');
+    }
+
+    /**
+     * Official creator profile for this user.
+     */
+    public function creatorProfile(): HasOne
+    {
+        return $this->hasOne(CreatorProfile::class, 'user_id');
+    }
+
+    /**
+     * Creator applications submitted by this user.
+     */
+    public function creatorApplications(): HasMany
+    {
+        return $this->hasMany(CreatorApplication::class, 'user_id');
+    }
+
+    /**
+     * Audit logs for creator management events.
+     */
+    public function creatorAuditLogs(): HasMany
+    {
+        return $this->hasMany(CreatorAuditLog::class, 'user_id');
+    }
+
+    /**
+     * Pen name reservations held by this user.
+     */
+    public function penNameReservations(): HasMany
+    {
+        return $this->hasMany(PenNameReservation::class, 'reserved_by_user_id');
     }
 }

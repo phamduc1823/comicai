@@ -72,6 +72,19 @@ const router = createRouter({
       },
     },
     {
+      path: '/profile',
+      name: 'account-profile',
+      component: () => import('@/pages/AccountProfilePage.vue'),
+      meta: {
+        title: 'Quản lý tài khoản — BlueToon',
+        requiresAuth: true,
+      },
+    },
+    {
+      path: '/account',
+      redirect: '/profile',
+    },
+    {
       path: '/library',
       name: 'library',
       component: () => import('@/pages/LibraryPage.vue'),
@@ -97,6 +110,18 @@ const router = createRouter({
         title: 'Ví Coin của tôi — BlueToon',
         requiresAuth: true,
       },
+    },
+    {
+      path: '/become-creator',
+      name: 'creator-application',
+      component: () => import('@/pages/CreatorApplicationPage.vue'),
+      meta: {
+        title: 'Đăng ký Tác giả — BlueToon',
+      },
+    },
+    {
+      path: '/creator-application',
+      redirect: '/become-creator',
     },
     {
       path: '/login',
@@ -214,6 +239,46 @@ const router = createRouter({
       component: () => import('@/pages/admin/AdminReportsPage.vue'),
       meta: {
         title: 'Quản lý Báo cáo vi phạm — BlueToon Admin',
+        requiresAuth: true,
+        roles: ['admin'],
+      },
+    },
+    {
+      path: '/admin/creator-applications',
+      name: 'admin-creator-applications',
+      component: () => import('@/pages/admin/AdminCreatorApplicationsPage.vue'),
+      meta: {
+        title: 'Quản lý Hồ sơ Creator — BlueToon Admin',
+        requiresAuth: true,
+        roles: ['admin'],
+      },
+    },
+    {
+      path: '/admin/creator-applications/:id',
+      name: 'admin-creator-application-detail',
+      component: () => import('@/pages/admin/AdminCreatorApplicationDetailPage.vue'),
+      meta: {
+        title: 'Chi tiết Hồ sơ Creator — BlueToon Admin',
+        requiresAuth: true,
+        roles: ['admin'],
+      },
+    },
+    {
+      path: '/admin/creators',
+      name: 'admin-creators',
+      component: () => import('@/pages/admin/AdminCreatorsPage.vue'),
+      meta: {
+        title: 'Quản lý Creator — BlueToon Admin',
+        requiresAuth: true,
+        roles: ['admin'],
+      },
+    },
+    {
+      path: '/admin/creators/:id',
+      name: 'admin-creator-detail',
+      component: () => import('@/pages/admin/AdminCreatorDetailPage.vue'),
+      meta: {
+        title: 'Chi tiết Creator — BlueToon Admin',
         requiresAuth: true,
         roles: ['admin'],
       },

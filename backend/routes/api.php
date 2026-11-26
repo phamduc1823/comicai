@@ -1,8 +1,11 @@
 <?php
 
+use App\Http\Controllers\Api\AccountProfileController;
 use App\Http\Controllers\Api\AdminBannerController;
 use App\Http\Controllers\Api\AdminChapterModerationController;
 use App\Http\Controllers\Api\AdminComicModerationController;
+use App\Http\Controllers\Api\AdminCreatorApplicationController;
+use App\Http\Controllers\Api\AdminCreatorController;
 use App\Http\Controllers\Api\AdminVipModerationController;
 use App\Http\Controllers\Api\AiSearchController;
 use App\Http\Controllers\Api\AuthController;
@@ -10,10 +13,13 @@ use App\Http\Controllers\Api\BannerController;
 use App\Http\Controllers\Api\ChapterController;
 use App\Http\Controllers\Api\ChapterUnlockController;
 use App\Http\Controllers\Api\ComicController;
+use App\Http\Controllers\Api\ComicPurchaseController;
 use App\Http\Controllers\Api\CommentController;
 use App\Http\Controllers\Api\ConversationController;
+use App\Http\Controllers\Api\CreatorApplicationController;
 use App\Http\Controllers\Api\CreatorChapterController;
 use App\Http\Controllers\Api\CreatorComicController;
+use App\Http\Controllers\Api\CreatorProfileController;
 use App\Http\Controllers\Api\GenreController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\NotificationController;
@@ -60,9 +66,24 @@ Route::get('/users/{id}/posts', [UserProfileController::class, 'posts']);
 Route::middleware(['guest.api', 'throttle:10,1,register'])->post('/register', [AuthController::class, 'register']);
 Route::middleware(['guest.api', 'throttle:5,1,login'])->post('/login', [AuthController::class, 'login']);
 
+// Email Verification (signed verification link clicked from email)
+Route::get('/email/verify/{id}/{hash}', [AuthController::class, 'verifyEmail'])
+    ->middleware(['signed', 'throttle:6,1'])
+    ->name('verification.verify');
+
 Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::get('/user', [AuthController::class, 'user']);
     Route::post('/logout', [AuthController::class, 'logout']);
+    Route::post('/email/verification-notification', [AuthController::class, 'sendVerificationNotification'])
+        ->middleware('throttle:6,1')
+        ->name('verification.send');
+
+    // User Account Profile & Settings
+    Route::get('/user/profile', [AccountProfileController::class, 'show']);
+    Route::match(['put', 'patch'], '/user/profile', [AccountProfileController::class, 'update']);
+    Route::post('/user/avatar', [AccountProfileController::class, 'uploadAvatar']);
+    Route::delete('/user/avatar', [AccountProfileController::class, 'deleteAvatar']);
+    Route::put('/user/password', [AccountProfileController::class, 'updatePassword'])->middleware('throttle:10,1');
 
     // Community Posts & Likes (authenticated)
     Route::post('/posts', [PostController::class, 'store']);
@@ -118,15 +139,26 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::match(['post', 'patch'], '/{id}/read', [NotificationController::class, 'markAsRead'])->name('read')->middleware('throttle:60,1');
     });
 
-    // Coin Wallet & VIP Chapter Unlock (Phase 5)
+    // Coin Wallet & VIP Comic Purchase (Phase 5)
     Route::get('/wallet', [WalletController::class, 'show']);
     Route::get('/wallet/transactions', [WalletController::class, 'transactions']);
     Route::post('/wallet/faucet', [WalletController::class, 'faucet'])->middleware('throttle:60,1');
+    Route::post('/comics/{id}/purchase', [ComicPurchaseController::class, 'purchase']);
+    Route::get('/comics/{id}/purchase-status', [ComicPurchaseController::class, 'status']);
     Route::post('/chapters/{id}/unlock', [ChapterUnlockController::class, 'unlock']);
+
+    // Creator Application System (Package CAI-CREATOR-01)
+    Route::get('/creator-applications/my', [CreatorApplicationController::class, 'myApplication']);
+    Route::post('/creator-applications', [CreatorApplicationController::class, 'store'])->middleware('throttle:10,1');
+    Route::post('/creator-applications/{id}/cancel', [CreatorApplicationController::class, 'cancel']);
+    Route::match(['put', 'patch'], '/creator-applications/{id}/resubmit', [CreatorApplicationController::class, 'resubmit']);
 });
 
 // Creator Comic & Chapter Management endpoints (creator and admin)
 Route::middleware(['auth:sanctum', 'active', 'role:creator'])->prefix('creator')->group(function () {
+    // Creator Profile
+    Route::get('/profile', [CreatorProfileController::class, 'show']);
+    Route::match(['put', 'patch'], '/profile', [CreatorProfileController::class, 'update']);
     // Comics
     Route::get('/comics', [CreatorComicController::class, 'index']);
     Route::post('/comics', [CreatorComicController::class, 'store']);
@@ -187,6 +219,25 @@ Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/banne
     Route::delete('/{banner}', [AdminBannerController::class, 'destroy']);
     Route::patch('/{banner}/status', [AdminBannerController::class, 'toggleStatus']);
 });
+
+// Admin Creator Management endpoints (strictly admin only)
+Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/creator-applications')->group(function () {
+    Route::get('/', [AdminCreatorApplicationController::class, 'index']);
+    Route::get('/export', [AdminCreatorApplicationController::class, 'export']);
+    Route::get('/{id}', [AdminCreatorApplicationController::class, 'show']);
+    Route::post('/{id}/approve', [AdminCreatorApplicationController::class, 'approve']);
+    Route::post('/{id}/reject', [AdminCreatorApplicationController::class, 'reject']);
+});
+
+Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/creators')->group(function () {
+    Route::get('/', [AdminCreatorController::class, 'index']);
+    Route::get('/export', [AdminCreatorController::class, 'export']);
+    Route::get('/{id}', [AdminCreatorController::class, 'show']);
+    Route::post('/{id}/revoke', [AdminCreatorController::class, 'revoke']);
+    Route::post('/{id}/grant-reapply', [AdminCreatorController::class, 'grantReapply']);
+    Route::post('/{id}/revoke-reapply', [AdminCreatorController::class, 'revokeReapply']);
+});
+
 
 
 

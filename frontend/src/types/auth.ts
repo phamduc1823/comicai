@@ -12,6 +12,7 @@ export interface User {
   email: string
   role: UserRole
   avatar_path: string | null
+  avatar_url?: string | null
   is_active: boolean
   email_verified_at: string | null
   created_at: string
@@ -83,4 +84,31 @@ export interface ApiErrorResponse {
  */
 export interface ApiRateLimitResponse {
   message: string
+}
+
+/**
+ * Payload sent to PUT /api/user/profile
+ */
+export interface UpdateProfilePayload {
+  name: string
+  email?: string
+}
+
+/**
+ * Payload sent to PUT /api/user/password
+ */
+export interface UpdatePasswordPayload {
+  current_password: string
+  password: string
+  password_confirmation: string
+}
+
+/**
+ * Successful response from POST /api/user/avatar
+ */
+export interface AvatarUploadResponse {
+  status: 'success'
+  message: string
+  user: User
+  avatar_url?: string
 }

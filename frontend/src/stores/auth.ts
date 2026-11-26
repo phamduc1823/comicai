@@ -186,6 +186,13 @@ export const useAuthStore = defineStore('auth', () => {
     error.value = null
   }
 
+  /**
+   * Directly update reactive user state (e.g. after profile edit or avatar upload)
+   */
+  function setUser(updatedUser: User): void {
+    user.value = updatedUser
+  }
+
   return {
     // State
     user,
@@ -204,6 +211,7 @@ export const useAuthStore = defineStore('auth', () => {
     // Actions
     initialize,
     fetchUser,
+    setUser,
     login,
     register,
     logout,

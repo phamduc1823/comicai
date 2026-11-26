@@ -358,6 +358,27 @@ onUnmounted(() => {
               <span>Nhắn tin</span>
             </button>
           </div>
+
+          <!-- Action Buttons for Own Profile -->
+          <div v-else-if="isOwnProfile" class="profile-action-block">
+            <RouterLink
+              to="/profile"
+              class="btn-edit-profile"
+              title="Quản lý và chỉnh sửa thông tin cá nhân"
+            >
+              <span class="btn-icon" aria-hidden="true">⚙️</span>
+              <span>Quản lý tài khoản</span>
+            </RouterLink>
+            <RouterLink
+              v-if="profile.role === 'reader'"
+              to="/become-creator"
+              class="btn-creator-register"
+              title="Đăng ký hoặc theo dõi hồ sơ tác giả"
+            >
+              <span class="btn-icon" aria-hidden="true">✍️</span>
+              <span>Đăng ký Tác giả</span>
+            </RouterLink>
+          </div>
         </header>
 
         <!-- Tabs Navigation -->
@@ -773,6 +794,51 @@ onUnmounted(() => {
 
 .btn-message:hover {
   background-color: var(--color-primary-hover);
+  transform: translateY(-1px);
+}
+
+.btn-edit-profile {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background-color: var(--color-bg-surface-raised);
+  color: var(--color-text-main);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-edit-profile:hover {
+  background-color: rgba(56, 139, 253, 0.15);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  transform: translateY(-1px);
+}
+
+.btn-creator-register {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background-color: #238636;
+  color: #fff;
+  border: 1px solid rgba(46, 160, 67, 0.4);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-creator-register:hover {
+  background-color: #2ea043;
+  box-shadow: 0 4px 12px rgba(46, 160, 67, 0.35);
   transform: translateY(-1px);
 }
 
