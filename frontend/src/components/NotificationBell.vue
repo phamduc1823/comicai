@@ -107,6 +107,14 @@ function resolveNotificationRoute(item: NotificationItem): string | { path: stri
     return item.target.url || '/become-creator'
   }
 
+  if (item.target?.type === 'comic_moderation') {
+    return item.target.url || (item.target.id ? `/admin/comics/${item.target.id}` : '/admin/moderation/comics')
+  }
+
+  if (item.target?.type === 'creator_comic') {
+    return item.target.url || (item.target.id ? `/creator/comics/${item.target.id}/chapters` : '/creator/comics')
+  }
+
   const rawUrl = item.target?.url
   if (typeof rawUrl === 'string' && rawUrl.startsWith('/') && !rawUrl.startsWith('//')) {
     return rawUrl

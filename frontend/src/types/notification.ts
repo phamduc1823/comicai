@@ -9,6 +9,9 @@ export type NotificationKind =
   | 'post_commented'
   | 'creator_application_approved'
   | 'creator_application_rejected'
+  | 'comic_submitted_for_review'
+  | 'comic_review_result'
+  | 'chapter_batch_review_result'
   | string
 
 export interface NotificationActor {
@@ -20,7 +23,7 @@ export interface NotificationActor {
 }
 
 export interface NotificationTarget {
-  type: 'conversation' | 'post' | 'creator_application' | string
+  type: 'conversation' | 'post' | 'creator_application' | 'comic_moderation' | 'creator_comic' | string
   id: number | null
   message_id?: number | null
   url: string

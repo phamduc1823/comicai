@@ -7,6 +7,7 @@ use App\Http\Requests\RejectChapterRequest;
 use App\Http\Resources\AdminModerationChapterResource;
 use App\Models\Chapter;
 use App\Models\Comic;
+use App\Services\NotificationService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -53,7 +54,7 @@ class AdminChapterModerationController extends Controller
      * Approve and publish a pending chapter.
      * Prerequisite: Parent comic must be approved.
      */
-    public function approve(Request $request, int|string $id): JsonResponse
+    public function approve(Request $request, int|string $id, NotificationService $notificationService): JsonResponse
     {
         $chapter = Chapter::with('comic')->findOrFail($id);
 
@@ -115,6 +116,15 @@ class AdminChapterModerationController extends Controller
             'approver:id,name',
         ]);
 
+        if ($request->user() && $updatedChapter->comic) {
+            $notificationService->notifyChaptersBatchReviewed(
+                comic: $updatedChapter->comic,
+                admin: $request->user(),
+                approvedCount: 1,
+                rejectedCount: 0
+            );
+        }
+
         return response()->json([
             'status' => 'success',
             'message' => 'Duyệt xuất bản chương truyện thành công.',
@@ -125,7 +135,7 @@ class AdminChapterModerationController extends Controller
     /**
      * Reject a pending chapter with reason.
      */
-    public function reject(RejectChapterRequest $request, int|string $id): JsonResponse
+    public function reject(RejectChapterRequest $request, int|string $id, NotificationService $notificationService): JsonResponse
     {
         $chapter = Chapter::with('comic')->findOrFail($id);
 
@@ -175,6 +185,16 @@ class AdminChapterModerationController extends Controller
             'images',
             'approver:id,name',
         ]);
+
+        if ($request->user() && $updatedChapter->comic) {
+            $notificationService->notifyChaptersBatchReviewed(
+                comic: $updatedChapter->comic,
+                admin: $request->user(),
+                approvedCount: 0,
+                rejectedCount: 1,
+                reason: $validated['rejection_reason']
+            );
+        }
 
         return response()->json([
             'status' => 'success',

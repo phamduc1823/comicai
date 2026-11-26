@@ -16,6 +16,10 @@ use App\Notifications\CreatorApplicationRejectedNotification;
 use App\Notifications\NewMessageNotification;
 use App\Notifications\PostCommentedNotification;
 use App\Notifications\PostLikedNotification;
+use App\Notifications\SystemBroadcastNotification;
+use App\Notifications\ComicSubmittedForReviewNotification;
+use App\Notifications\ComicReviewResultNotification;
+use App\Notifications\ChapterBatchReviewResultNotification;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\QueryException;
 use Illuminate\Notifications\DatabaseNotification;
@@ -27,12 +31,17 @@ class NotificationService
      * Notification types strictly displayed in the Notification Bell.
      * CAI-MSG-04: Excludes message and chat notifications from the bell.
      * CAI-CREATOR-01: Includes creator application approval and rejection.
+     * CAI-ADMIN-03: Includes comic review and contextual chapter batch review notifications.
      */
     public const BELL_NOTIFICATION_TYPES = [
         PostLikedNotification::class,
         PostCommentedNotification::class,
         CreatorApplicationApprovedNotification::class,
         CreatorApplicationRejectedNotification::class,
+        SystemBroadcastNotification::class,
+        ComicSubmittedForReviewNotification::class,
+        ComicReviewResultNotification::class,
+        ChapterBatchReviewResultNotification::class,
     ];
     /**
      * Format a DatabaseNotification model into a strictly whitelisted API/broadcast payload.
@@ -328,6 +337,119 @@ class NotificationService
 
         if ($record) {
             $this->broadcastNotificationCreated($applicant, $record);
+        }
+
+        return $record;
+    }
+
+    /**
+     * CAI-ADMIN-03: Notify all active administrators when a Creator submits a comic (with or without chapters) for review.
+     * Consolidates notifications per comic submission batch, preventing 10 individual notifications.
+     */
+    public function notifyComicSubmittedForReview(Comic $comic, User $creator, int $chaptersCount = 0): void
+    {
+        $activeAdmins = User::where('role', 'admin')
+            ->where('is_active', true)
+            ->where('id', '!=', $creator->id)
+            ->get(['id', 'role']);
+
+        if ($activeAdmins->isEmpty()) {
+            return;
+        }
+
+        $notificationObj = new ComicSubmittedForReviewNotification($comic, $creator, $chaptersCount);
+        $payload = $notificationObj->toPayload();
+        $dedupeBase = $notificationObj->dedupeKey();
+
+        foreach ($activeAdmins as $admin) {
+            $record = $this->createDeduplicatedNotification(
+                recipient: $admin,
+                typeClass: ComicSubmittedForReviewNotification::class,
+                data: $payload,
+                dedupeKey: $dedupeBase . ':admin:' . $admin->id
+            );
+
+            if ($record) {
+                $this->broadcastNotificationCreated($admin, $record);
+            }
+        }
+    }
+
+    /**
+     * CAI-ADMIN-03: Notify the creator with the consolidated review result of their comic and approved chapters.
+     */
+    public function notifyComicReviewResult(
+        Comic $comic,
+        User $admin,
+        string $action,
+        int $approvedChaptersCount = 0,
+        ?string $reason = null
+    ): ?DatabaseNotification {
+        $creator = User::where('id', $comic->user_id)
+            ->where('is_active', true)
+            ->first();
+
+        if (! $creator || (int) $creator->id === (int) $admin->id) {
+            return null;
+        }
+
+        $notificationObj = new ComicReviewResultNotification(
+            comic: $comic,
+            admin: $admin,
+            action: $action,
+            approvedChaptersCount: $approvedChaptersCount,
+            reason: $reason
+        );
+
+        $record = $this->createDeduplicatedNotification(
+            recipient: $creator,
+            typeClass: ComicReviewResultNotification::class,
+            data: $notificationObj->toPayload(),
+            dedupeKey: $notificationObj->dedupeKey()
+        );
+
+        if ($record) {
+            $this->broadcastNotificationCreated($creator, $record);
+        }
+
+        return $record;
+    }
+
+    /**
+     * CAI-ADMIN-03: Notify the creator when chapters under a comic are reviewed/rejected in batch.
+     */
+    public function notifyChaptersBatchReviewed(
+        Comic $comic,
+        User $admin,
+        int $approvedCount,
+        int $rejectedCount,
+        ?string $reason = null
+    ): ?DatabaseNotification {
+        $creator = User::where('id', $comic->user_id)
+            ->where('is_active', true)
+            ->first();
+
+        if (! $creator || (int) $creator->id === (int) $admin->id) {
+            return null;
+        }
+
+        $notificationObj = new ChapterBatchReviewResultNotification(
+            comic: $comic,
+            admin: $admin,
+            approvedCount: $approvedCount,
+            rejectedCount: $rejectedCount,
+            reason: $reason
+        );
+
+        $record = $this->createDeduplicatedNotification(
+            recipient: $creator,
+            typeClass: ChapterBatchReviewResultNotification::class,
+            data: $notificationObj->toPayload(),
+            dedupeKey: $notificationObj->dedupeKey()
+        );
+
+        if ($record) {
+            $this->broadcastNotificationCreated($creator, $record);
         }
 
         return $record;
