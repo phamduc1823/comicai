@@ -342,6 +342,13 @@ watch(
 )
 
 onMounted(() => {
+  // Prevent browser from restoring unwanted scroll position on refresh and reset to top
+  if (typeof window !== 'undefined') {
+    if ('scrollRestoration' in window.history) {
+      window.history.scrollRestoration = 'manual'
+    }
+    window.scrollTo(0, 0)
+  }
   if (authStore.isAuthenticated) {
     walletStore.fetchWallet()
   }

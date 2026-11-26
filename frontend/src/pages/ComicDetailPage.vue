@@ -548,6 +548,8 @@ watch(
 )
 
 onMounted(() => {
+  // Reset window scroll to top when opening comic from home page or direct navigation
+  window.scrollTo(0, 0)
   const slug = String(route.params.slug || '')
   if (slug) {
     loadComicData(slug)

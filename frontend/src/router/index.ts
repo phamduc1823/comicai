@@ -14,6 +14,32 @@ declare module 'vue-router' {
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
+  scrollBehavior(to, from, savedPosition) {
+    // CAI-ADMIN-03: Strict protection for Admin UI and Admin Sidebar scroll state.
+    // Preserves Admin layout and existing useAdminSidebarScroll composable behaviour.
+    if (to.path.startsWith('/admin') || from.path.startsWith('/admin')) {
+      return false
+    }
+
+    if (savedPosition) {
+      return savedPosition
+    }
+
+    if (to.hash) {
+      return { el: to.hash, behavior: 'smooth' }
+    }
+
+    // Reset window scroll to top when opening a comic from home page or navigating between public pages
+    if (
+      to.name === 'comic-detail' ||
+      to.name === 'comic-reader' ||
+      to.path.startsWith('/comics')
+    ) {
+      return { top: 0, left: 0 }
+    }
+
+    return { top: 0, left: 0 }
+  },
   routes: [
     {
       path: '/',
