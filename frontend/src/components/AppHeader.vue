@@ -518,7 +518,7 @@ async function handleDropdownLogout() {
   border-bottom: 1px solid var(--color-border);
   position: sticky;
   top: 0;
-  z-index: 50;
+  z-index: 200;
   backdrop-filter: blur(12px);
 }
 
@@ -794,7 +794,7 @@ async function handleDropdownLogout() {
   border-radius: var(--radius-xl);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 1px rgba(255, 255, 255, 0.1);
   overflow: hidden;
-  z-index: 100;
+  z-index: 250;
   backdrop-filter: blur(16px);
 }
 
@@ -806,7 +806,7 @@ async function handleDropdownLogout() {
 }
 
 .dropdown-header-banner {
-  height: 52px;
+  height: 48px;
   background: linear-gradient(135deg, #093959 0%, #175485 50%, #2076b3 100%);
   opacity: 0.9;
   position: relative;
@@ -815,10 +815,10 @@ async function handleDropdownLogout() {
 
 .dropdown-header-content {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   padding: 0 16px 14px;
-  margin-top: -24px;
+  margin-top: -16px;
   position: relative;
   z-index: 10;
 }
@@ -861,7 +861,7 @@ async function handleDropdownLogout() {
 .dropdown-user-info {
   flex: 1;
   min-width: 0;
-  padding-top: 24px;
+  padding-top: 18px;
 }
 
 .dropdown-user-name {

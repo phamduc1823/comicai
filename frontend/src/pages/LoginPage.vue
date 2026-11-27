@@ -92,10 +92,6 @@ async function handleLogin() {
   <div class="auth-page">
     <div class="auth-card">
       <div class="auth-header">
-        <div class="auth-brand-badge">
-          <span class="auth-logo">📖</span>
-          <span>BlueToon</span>
-        </div>
         <h1 class="auth-title">Đăng nhập tài khoản</h1>
         <p class="auth-subtitle">Chào mừng bạn quay trở lại nền tảng truyện tranh trực tuyến</p>
       </div>

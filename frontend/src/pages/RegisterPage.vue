@@ -101,10 +101,6 @@ async function handleRegister() {
   <div class="auth-page">
     <div class="auth-card">
       <div class="auth-header">
-        <div class="auth-brand-badge">
-          <span class="auth-logo">📖</span>
-          <span>BlueToon</span>
-        </div>
         <h1 class="auth-title">Đăng ký tài khoản</h1>
         <p class="auth-subtitle">Tạo tài khoản để theo dõi truyện và lưu lịch sử đọc cá nhân</p>
       </div>

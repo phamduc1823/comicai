@@ -1,26 +1,10 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useRouter, useRoute, RouterLink } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
-import { getErrorMessage } from '@/services/httpClient'
+import { useRoute, RouterLink } from 'vue-router'
 
-const router = useRouter()
 const route = useRoute()
-const authStore = useAuthStore()
 
 const isMobileSidebarOpen = ref(false)
-const isLoggingOut = ref(false)
-const logoutError = ref<string | null>(null)
-const avatarLoadError = ref(false)
-
-const userInitials = computed(() => {
-  const name = authStore.user?.name?.trim()
-  return name ? name.charAt(0).toUpperCase() : 'C'
-})
-
-const roleBadgeLabel = computed(() => {
-  return authStore.isAdmin ? 'Quản trị viên' : 'Tác giả'
-})
 
 const currentSectionTitle = computed(() => {
   if (route.path === '/creator/comics/create') return 'Đăng truyện mới'
@@ -29,20 +13,6 @@ const currentSectionTitle = computed(() => {
   if (route.path.includes('/chapters')) return 'Quản lý chương'
   return 'Truyện của tôi'
 })
-
-async function handleLogout() {
-  if (isLoggingOut.value) return
-  logoutError.value = null
-  isLoggingOut.value = true
-  try {
-    await authStore.logout()
-    await router.push('/')
-  } catch (err: unknown) {
-    logoutError.value = getErrorMessage(err, 'Đăng xuất không thành công.')
-  } finally {
-    isLoggingOut.value = false
-  }
-}
 
 function closeMobileSidebar() {
   isMobileSidebarOpen.value = false
@@ -68,10 +38,8 @@ function closeMobileSidebar() {
       <!-- Sidebar Brand -->
       <div class="sidebar-brand">
         <RouterLink to="/creator/comics" class="brand-link" @click="closeMobileSidebar">
-          <span class="brand-logo" aria-hidden="true">📖</span>
           <div class="brand-names">
-            <span class="brand-title">BlueToon</span>
-            <span class="brand-studio-badge">STUDIO</span>
+            <span class="brand-title">CREATOR STUDIO</span>
           </div>
         </RouterLink>
       </div>
@@ -123,58 +91,12 @@ function closeMobileSidebar() {
             ☰
           </button>
           <div class="topbar-breadcrumb">
-            <span class="breadcrumb-root">Creator Studio</span>
+            <span class="breadcrumb-root">CREATOR STUDIO</span>
             <span class="breadcrumb-separator" aria-hidden="true">/</span>
             <span class="breadcrumb-current">{{ currentSectionTitle }}</span>
           </div>
         </div>
-
-        <div class="topbar-right">
-          <!-- User Profile Display -->
-          <div class="topbar-user">
-            <div class="user-avatar" aria-hidden="true">
-              <img
-                v-if="authStore.user?.avatar_path && !avatarLoadError"
-                :src="authStore.user.avatar_path"
-                :alt="authStore.user.name"
-                class="avatar-img"
-                @error="avatarLoadError = true"
-              />
-              <span v-else class="avatar-initial">{{ userInitials }}</span>
-            </div>
-            <div class="user-meta">
-              <span class="user-name">{{ authStore.user?.name }}</span>
-              <span class="user-role-badge">{{ roleBadgeLabel }}</span>
-            </div>
-          </div>
-
-          <!-- Quick Logout Button -->
-          <button
-            type="button"
-            class="btn-topbar-logout"
-            :disabled="isLoggingOut"
-            :aria-busy="isLoggingOut"
-            title="Đăng xuất"
-            @click="handleLogout"
-          >
-            <span>{{ isLoggingOut ? '...' : 'Đăng xuất' }}</span>
-          </button>
-        </div>
       </header>
-
-      <!-- Logout Error Banner -->
-      <div v-if="logoutError" class="logout-error-banner" role="alert">
-        <span class="banner-icon" aria-hidden="true">⚠️</span>
-        <span class="banner-text">{{ logoutError }}</span>
-        <button
-          type="button"
-          class="banner-close-btn"
-          aria-label="Đóng thông báo"
-          @click="logoutError = null"
-        >
-          ✕
-        </button>
-      </div>
 
       <!-- Page Content -->
       <main class="studio-content">
@@ -204,7 +126,7 @@ function closeMobileSidebar() {
 
 /* Studio Sidebar */
 .studio-sidebar {
-  width: 250px;
+  width: 260px;
   background-color: var(--color-bg-surface);
   border-right: 1px solid var(--color-border);
   display: flex;
@@ -242,19 +164,8 @@ function closeMobileSidebar() {
 .brand-title {
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-bold);
-  color: var(--color-text-primary);
+  color: #fff;
   letter-spacing: -0.02em;
-}
-
-.brand-studio-badge {
-  font-size: 10px;
-  font-weight: var(--font-weight-bold);
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  background-color: var(--color-primary-soft);
-  color: var(--color-primary);
-  letter-spacing: 0.05em;
-  border: 1px solid rgba(56, 189, 248, 0.3);
 }
 
 .sidebar-nav {
@@ -267,12 +178,12 @@ function closeMobileSidebar() {
 }
 
 .nav-section-label {
-  font-size: 11px;
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 700;
+  color: #94a3b8;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  padding: var(--spacing-xs) var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-sm) 6px;
 }
 
 .sidebar-nav-item {
@@ -380,108 +291,6 @@ function closeMobileSidebar() {
 .breadcrumb-current {
   color: var(--color-text-primary);
   font-weight: var(--font-weight-medium);
-}
-
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-}
-
-.topbar-user {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-}
-
-.user-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-full);
-  background-color: var(--color-primary-soft);
-  color: var(--color-primary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-  font-weight: var(--font-weight-bold);
-  overflow: hidden;
-  border: 1px solid rgba(56, 189, 248, 0.3);
-}
-
-.avatar-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.user-meta {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.2;
-}
-
-.user-name {
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-primary);
-}
-
-.user-role-badge {
-  font-size: 10px;
-  color: var(--color-primary);
-}
-
-.btn-topbar-logout {
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  background-color: transparent;
-  border: 1px solid var(--color-border);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.btn-topbar-logout:hover:not(:disabled) {
-  color: var(--color-text-primary);
-  background-color: var(--color-bg-elevated);
-  border-color: var(--color-border-subtle);
-}
-
-/* Logout Error Banner */
-.logout-error-banner {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  background-color: rgba(239, 68, 68, 0.12);
-  border-bottom: 1px solid rgba(239, 68, 68, 0.35);
-  color: #f87171;
-  padding: var(--spacing-sm) var(--spacing-lg);
-  font-size: var(--font-size-sm);
-}
-
-.logout-error-banner .banner-icon {
-  font-size: 14px;
-}
-
-.logout-error-banner .banner-text {
-  flex: 1;
-}
-
-.logout-error-banner .banner-close-btn {
-  background: transparent;
-  border: none;
-  color: #f87171;
-  cursor: pointer;
-  padding: 2px 6px;
-  font-size: var(--font-size-sm);
-  border-radius: var(--radius-sm);
-  transition: background-color var(--transition-fast);
-}
-
-.logout-error-banner .banner-close-btn:hover {
-  background-color: rgba(239, 68, 68, 0.2);
 }
 
 /* Content Area */

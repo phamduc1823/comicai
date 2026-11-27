@@ -113,10 +113,8 @@ onBeforeUnmount(() => {
       <!-- Sidebar Brand -->
       <div class="sidebar-brand">
         <RouterLink to="/admin/dashboard" class="brand-link" @click="closeMobileSidebar">
-          <span class="brand-logo" aria-hidden="true">🛡️</span>
           <div class="brand-names">
-            <span class="brand-title">BlueToon</span>
-            <span class="brand-badge">ADMIN</span>
+            <span class="brand-title">ADMIN PAGE</span>
           </div>
         </RouterLink>
       </div>
@@ -345,7 +343,11 @@ onBeforeUnmount(() => {
           >
             ☰
           </button>
-          <h1 class="topbar-title">{{ currentSectionTitle }}</h1>
+          <div class="topbar-breadcrumb">
+            <span class="breadcrumb-root">ADMIN PAGE</span>
+            <span class="breadcrumb-separator" aria-hidden="true">/</span>
+            <span class="breadcrumb-current">{{ currentSectionTitle }}</span>
+          </div>
         </div>
 
         <div class="topbar-right">
@@ -417,8 +419,8 @@ onBeforeUnmount(() => {
 .brand-title {
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-bold);
-  color: var(--color-text-primary);
-  letter-spacing: -0.5px;
+  color: #fff;
+  letter-spacing: -0.02em;
 }
 
 .brand-badge {
@@ -453,12 +455,12 @@ onBeforeUnmount(() => {
 }
 
 .nav-section-label {
-  font-size: 11px;
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 700;
+  color: #94a3b8;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  padding: var(--spacing-sm) var(--spacing-sm) 4px;
+  letter-spacing: 0.05em;
+  padding: var(--spacing-sm) var(--spacing-sm) 6px;
 }
 
 .nav-section-divider {
@@ -625,6 +627,26 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
+}
+
+.topbar-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-size-sm);
+}
+
+.breadcrumb-root {
+  color: var(--color-text-muted);
+}
+
+.breadcrumb-separator {
+  color: var(--color-border);
+}
+
+.breadcrumb-current {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
 }
 
 .mobile-menu-btn {
