@@ -34,6 +34,25 @@ const selectedStatus = ref<ComicStatus | ''>('')
 const selectedSort = ref<ComicSortOption>('latest')
 const currentPage = ref(1)
 
+// Emits for HomePage dual-state toggle (State A Discovery vs State B Search/Filter)
+const emit = defineEmits<{
+  (e: 'search-state-change', isSearchingOrFiltering: boolean): void
+}>()
+
+// Track if a search query or filter has actually been executed by user
+const isSearchActive = ref(false)
+
+// Computed: whether user has actively applied search query or non-default filter
+const hasActiveSearchOrFilter = computed(() => {
+  return (
+    searchInput.value.trim() !== '' ||
+    selectedGenre.value !== '' ||
+    selectedTag.value !== '' ||
+    selectedStatus.value !== '' ||
+    isSearchActive.value
+  )
+})
+
 // Race-condition guard
 let latestRequestId = 0
 
@@ -167,6 +186,9 @@ async function fetchComics(page = currentPage.value) {
   aiFallbackNotice.value = null
   currentPage.value = page
 
+  // Notify parent component about current search/filter state
+  emit('search-state-change', hasActiveSearchOrFilter.value)
+
   // If AI search mode is active and there is a query string, invoke AI Search API
   if (searchMode.value === 'ai' && searchInput.value.trim()) {
     try {
@@ -263,11 +285,15 @@ function submitSearch() {
     if (searchMode.value === 'ai') {
       return
     }
-    // In normal mode: if no active filters changed, do not trigger redundant fetch
-    if (!selectedGenre.value && !selectedTag.value && !selectedStatus.value && selectedSort.value === 'latest' && comics.value.length > 0) {
-      return
-    }
   }
+
+  // Mark search as active if user has entered query or chosen filters
+  isSearchActive.value = !!(
+    cleanQuery ||
+    selectedGenre.value ||
+    selectedTag.value ||
+    selectedStatus.value
+  )
 
   fetchComics(1)
 }
@@ -277,6 +303,12 @@ function submitSearch() {
  */
 function clearSearch() {
   searchInput.value = ''
+  if (!selectedGenre.value && !selectedTag.value && !selectedStatus.value) {
+    isSearchActive.value = false
+    emit('search-state-change', false)
+  } else {
+    submitSearch()
+  }
 }
 
 /**
@@ -289,6 +321,8 @@ function resetAllFilters() {
   selectedStatus.value = ''
   selectedSort.value = 'latest'
   currentPage.value = 1
+  isSearchActive.value = false
+  emit('search-state-change', false)
   fetchComics(1)
 }
 
@@ -402,7 +436,7 @@ onMounted(async () => {
 
     <!-- Main Content Area: Filters Panel & Comics Grid -->
     <div class="container catalog-body">
-      <!-- Filter Bar Panel matching exact screenshot -->
+      <!-- Filter Bar Panel matching exact screenshot (Always visible by default) -->
       <section class="filters-panel" aria-label="Bộ lọc truyện tranh">
         <div class="filters-row">
           <!-- Genre Select -->
@@ -531,8 +565,10 @@ onMounted(async () => {
         </div>
       </section>
 
-      <!-- Results Info Bar -->
-      <div class="results-meta-bar">
+      <!-- Results Section (Visible only when searching or filtering) -->
+      <div v-if="hasActiveSearchOrFilter" class="search-results-wrapper">
+        <!-- Results Info Bar -->
+        <div class="results-meta-bar">
         <span v-if="paginationMeta" class="results-count">
           <template v-if="searchMode === 'ai' && searchInput.trim()">
             Tìm thấy <strong>{{ paginationMeta.total }}</strong> bộ truyện theo ngữ nghĩa AI
@@ -652,6 +688,7 @@ onMounted(async () => {
             Trang sau ›
           </button>
         </nav>
+      </div>
       </div>
     </div>
   </section>

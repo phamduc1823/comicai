@@ -49,6 +49,7 @@ class ComicController extends Controller
                 'genres:id,name,slug,description',
                 'tags:id,name,slug,description',
                 'user:id,name,avatar_path',
+                'latestPublishedChapter:id,comic_id,chapter_number,title,slug,created_at,updated_at',
             ]);
 
         // Filter by genre slug
@@ -70,6 +71,11 @@ class ComicController extends Controller
             $query->where('status', $validated['status']);
         }
 
+        // Filter by featured status
+        if (isset($validated['is_featured'])) {
+            $query->where('is_featured', (bool) $validated['is_featured']);
+        }
+
         // Keyword search with safe % and _ wildcard escaping
         if (! empty($validated['q'])) {
             $escaped = addcslashes($validated['q'], '%_\\');
@@ -85,8 +91,15 @@ class ComicController extends Controller
         // Sorting with deterministic id tie-break
         $sort = $validated['sort'] ?? 'latest';
         match ($sort) {
-            'views' => $query->orderBy('views_count', 'desc')->orderBy('id', 'desc'),
+            'views', 'weekly_views' => $query->orderBy('views_count', 'desc')->orderBy('id', 'desc'),
             'follows' => $query->orderBy('follows_count', 'desc')->orderBy('id', 'desc'),
+            'updated' => $query->orderByDesc(
+                \App\Models\Chapter::select('created_at')
+                    ->whereColumn('chapters.comic_id', 'comics.id')
+                    ->where('status', 'published')
+                    ->latest()
+                    ->limit(1)
+            )->orderBy('updated_at', 'desc')->orderBy('id', 'desc'),
             default => $query->orderBy('created_at', 'desc')->orderBy('id', 'desc'),
         };
 

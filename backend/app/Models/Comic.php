@@ -123,6 +123,20 @@ class Comic extends Model
     }
 
     /**
+     * The latest published chapter of this comic.
+     */
+    public function latestPublishedChapter(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(Chapter::class, 'comic_id')
+            ->ofMany(
+                ['chapter_number' => 'max', 'id' => 'max'],
+                function ($query) {
+                    $query->where('status', 'published');
+                }
+            );
+    }
+
+    /**
      * All purchase records for this comic.
      */
     public function purchases(): HasMany

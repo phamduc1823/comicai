@@ -27,7 +27,8 @@ class ListComicsRequest extends FormRequest
             'genre' => ['sometimes', 'string', 'max:100'],
             'tag' => ['sometimes', 'string', 'max:100'],
             'status' => ['sometimes', 'string', 'in:ongoing,completed,hiatus'],
-            'sort' => ['sometimes', 'string', 'in:latest,views,follows'],
+            'sort' => ['sometimes', 'string', 'in:latest,views,follows,updated,weekly_views'],
+            'is_featured' => ['sometimes', 'boolean'],
             'q' => ['sometimes', 'string', 'max:100'],
         ];
     }

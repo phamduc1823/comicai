@@ -32,6 +32,16 @@ class ComicListResource extends JsonResource
             'follows_count' => (int) $this->follows_count,
             'is_featured' => (bool) $this->is_featured,
             'published_chapters_count' => (int) ($this->published_chapters_count ?? $this->chapters_count ?? 0),
+            'latest_chapter' => $this->whenLoaded('latestPublishedChapter', function () {
+                return $this->latestPublishedChapter ? [
+                    'id' => $this->latestPublishedChapter->id,
+                    'chapter_number' => (string) $this->latestPublishedChapter->chapter_number,
+                    'title' => $this->latestPublishedChapter->title,
+                    'slug' => $this->latestPublishedChapter->slug,
+                    'created_at' => $this->latestPublishedChapter->created_at?->toISOString(),
+                    'updated_at' => $this->latestPublishedChapter->updated_at?->toISOString(),
+                ] : null;
+            }),
             'genres' => GenreResource::collection($this->whenLoaded('genres')),
             'tags' => TagResource::collection($this->whenLoaded('tags')),
             'creator' => $this->whenLoaded('user', function () {

@@ -42,6 +42,14 @@ export interface ComicListItem {
   price?: number
   is_purchased?: boolean
   published_chapters_count: number
+  latest_chapter?: {
+    id: number
+    chapter_number: string
+    title: string | null
+    slug: string
+    created_at: string | null
+    updated_at: string | null
+  } | null
   genres: Genre[]
   tags: Tag[]
   creator: CreatorSummary | null
@@ -146,7 +154,8 @@ export interface ListComicsParams {
   genre?: string
   tag?: string
   status?: ComicStatus
-  sort?: ComicSortOption
+  sort?: ComicSortOption | 'updated' | 'weekly_views'
+  is_featured?: boolean | number
   q?: string
 }
 

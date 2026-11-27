@@ -1,6 +1,15 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import BannerSlider from '@/components/BannerSlider.vue'
 import HomeSearchSection from '@/components/HomeSearchSection.vue'
+import HomeDiscoverySections from '@/components/HomeDiscoverySections.vue'
+
+// Dual-State Track: false = State A (Discovery 5 sections), true = State B (Search / Filter active)
+const isSearchActive = ref(false)
+
+function handleSearchStateChange(active: boolean) {
+  isSearchActive.value = active
+}
 </script>
 
 <template>
@@ -8,8 +17,11 @@ import HomeSearchSection from '@/components/HomeSearchSection.vue'
     <!-- Hero Banner Slider -->
     <BannerSlider />
 
-    <!-- Main Comic Catalog Search & Filter Section (Exact UI from screenshot) -->
-    <HomeSearchSection />
+    <!-- Main Comic Catalog Search & Filter Section (Always holds search form & filters; results shown in State B) -->
+    <HomeSearchSection @search-state-change="handleSearchStateChange" />
+
+    <!-- State A: 5 Discovery Sections in EXACT order (Visible only when not searching/filtering) -->
+    <HomeDiscoverySections v-show="!isSearchActive" />
 
     <!-- Platform Highlights Section -->
     <section class="platform-features" aria-label="Điểm nổi bật của nền tảng">
