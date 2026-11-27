@@ -51,6 +51,8 @@ Route::get('/health', function () {
 // Public Catalog endpoints (no authentication required)
 Route::get('/genres', [GenreController::class, 'index']);
 Route::get('/tags', [TagController::class, 'index']);
+Route::get('/tags/suggestions', [TagController::class, 'suggestions'])->middleware('throttle:60,1');
+Route::post('/tags', [TagController::class, 'storeCommunityTag'])->middleware(['auth:sanctum', 'active', 'role:creator', 'throttle:30,1']);
 Route::get('/banners', [BannerController::class, 'index']);
 Route::get('/comics', [ComicController::class, 'index']);
 Route::get('/comics/{slug}', [ComicController::class, 'show']);
@@ -164,6 +166,9 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
 
 // Creator Comic & Chapter Management endpoints (creator and admin)
 Route::middleware(['auth:sanctum', 'active', 'role:creator'])->prefix('creator')->group(function () {
+    // Community Tags creation/resolution
+    Route::post('/tags', [TagController::class, 'storeCommunityTag'])->middleware('throttle:30,1');
+
     // Creator Profile
     Route::get('/profile', [CreatorProfileController::class, 'show']);
     Route::match(['put', 'patch'], '/profile', [CreatorProfileController::class, 'update']);

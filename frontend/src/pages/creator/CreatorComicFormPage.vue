@@ -13,6 +13,8 @@ import {
 } from '@/services/httpClient'
 import type { CreatorComic, AgeRating, ComicProgressStatus } from '@/types/creator'
 import type { Genre, Tag } from '@/types/catalog'
+import { normalizeCommunityTag, getOrganizedTags } from '@/utils/tagUtils'
+import { getOrganizedGenres } from '@/utils/genreUtils'
 
 const route = useRoute()
 const router = useRouter()
@@ -98,6 +100,33 @@ function toggleGenre(genreId: number) {
   clearFieldError('genres')
 }
 
+// Genre Search & Selected-First UI State
+const genreSearchText = ref('')
+const isGenreListExpanded = ref(false)
+const DEFAULT_UNSELECTED_GENRES_LIMIT = 8
+
+const organizedGenresState = computed(() => {
+  return getOrganizedGenres(
+    availableGenres.value,
+    selectedGenres.value,
+    genreSearchText.value,
+    isGenreListExpanded.value,
+    DEFAULT_UNSELECTED_GENRES_LIMIT
+  )
+})
+
+const displayedGenres = computed(() => organizedGenresState.value.displayedGenres)
+const hasMoreUnselectedGenres = computed(() => organizedGenresState.value.hasMoreUnselected)
+const isSearchingGenres = computed(() => !!genreSearchText.value.trim())
+
+function toggleExpandGenres() {
+  isGenreListExpanded.value = !isGenreListExpanded.value
+}
+
+function clearGenreSearch() {
+  genreSearchText.value = ''
+}
+
 function toggleTag(tagId: number) {
   if (isApprovedWithPendingChanges.value || isComicPendingReview.value) return
   const index = selectedTags.value.indexOf(tagId)
@@ -109,6 +138,176 @@ function toggleTag(tagId: number) {
     selectedTags.value.splice(index, 1)
   }
   clearFieldError('tags')
+}
+
+// Visible tags list: All selected tags first + 6 unselected tags
+const DEFAULT_UNSELECTED_TAGS_LIMIT = 6
+const displayedTags = computed(() => {
+  return getOrganizedTags(availableTags.value, selectedTags.value, DEFAULT_UNSELECTED_TAGS_LIMIT)
+})
+
+// Tag Input & Autocomplete State
+const tagInputContainerRef = ref<HTMLElement | null>(null)
+const tagInputText = ref('')
+const tagSuggestions = ref<Tag[]>([])
+const isSearchingTags = ref(false)
+const searchTagError = ref<string | null>(null)
+const isDropdownOpen = ref(false)
+const highlightedSuggestionIndex = ref(-1)
+const isTagCreating = ref(false)
+
+const normalizedInputTag = computed(() => normalizeCommunityTag(tagInputText.value))
+
+const canCreateNewTag = computed(() => {
+  if (!normalizedInputTag.value || normalizedInputTag.value.length < 2) return false
+  if (isTagLimitReached.value) return false
+  const matchesSuggestion = tagSuggestions.value.some(
+    (s) => normalizeCommunityTag(s.name) === normalizedInputTag.value || s.slug === normalizedInputTag.value
+  )
+  const matchesSelected = availableTags.value.some(
+    (t) => selectedTags.value.includes(t.id) && (normalizeCommunityTag(t.name) === normalizedInputTag.value || t.slug === normalizedInputTag.value)
+  )
+  return !matchesSuggestion && !matchesSelected
+})
+
+let tagSearchTimer: ReturnType<typeof setTimeout> | null = null
+let tagSearchRequestId = 0
+
+function handleTagInput() {
+  clearFieldError('tags')
+  const currentReqId = ++tagSearchRequestId
+  const query = tagInputText.value.trim()
+
+  if (!query) {
+    tagSuggestions.value = []
+    isSearchingTags.value = false
+    searchTagError.value = null
+    highlightedSuggestionIndex.value = -1
+    return
+  }
+
+  isDropdownOpen.value = true
+  highlightedSuggestionIndex.value = -1
+
+  if (tagSearchTimer) clearTimeout(tagSearchTimer)
+  tagSearchTimer = setTimeout(async () => {
+    isSearchingTags.value = true
+    searchTagError.value = null
+    try {
+      const res = await CatalogService.getTagSuggestions(query, selectedTags.value)
+      if (currentReqId === tagSearchRequestId) {
+        tagSuggestions.value = res.data || []
+      }
+    } catch {
+      if (currentReqId === tagSearchRequestId) {
+        searchTagError.value = 'Không thể tải gợi ý tag.'
+      }
+    } finally {
+      if (currentReqId === tagSearchRequestId) {
+        isSearchingTags.value = false
+      }
+    }
+  }, 280)
+}
+
+function handleTagInputFocus() {
+  if (tagInputText.value.trim()) {
+    isDropdownOpen.value = true
+    handleTagInput()
+  }
+}
+
+function closeSuggestions() {
+  isDropdownOpen.value = false
+  highlightedSuggestionIndex.value = -1
+}
+
+function navigateSuggestion(direction: 1 | -1) {
+  if (!isDropdownOpen.value) {
+    isDropdownOpen.value = true
+    return
+  }
+  const totalItems = tagSuggestions.value.length + (canCreateNewTag.value ? 1 : 0)
+  if (totalItems === 0) return
+
+  let next = highlightedSuggestionIndex.value + direction
+  if (next < 0) next = totalItems - 1
+  if (next >= totalItems) next = 0
+  highlightedSuggestionIndex.value = next
+}
+
+function selectSuggestion(tag: Tag) {
+  if (selectedTags.value.includes(tag.id)) {
+    closeSuggestions()
+    tagInputText.value = ''
+    return
+  }
+  if (selectedTags.value.length >= MAX_TAGS) {
+    closeSuggestions()
+    return
+  }
+  if (!availableTags.value.some((t) => t.id === tag.id)) {
+    availableTags.value.push(tag)
+  }
+  selectedTags.value.push(tag.id)
+  tagInputText.value = ''
+  closeSuggestions()
+  clearFieldError('tags')
+}
+
+async function createAndAddCommunityTag() {
+  const raw = tagInputText.value.trim()
+  if (!raw || isTagCreating.value || isTagLimitReached.value) return
+  isTagCreating.value = true
+  try {
+    const res = await CreatorService.createCommunityTag(raw)
+    const newTag = res.data
+    if (!availableTags.value.some((t) => t.id === newTag.id)) {
+      availableTags.value.push(newTag)
+    }
+    if (!selectedTags.value.includes(newTag.id) && selectedTags.value.length < MAX_TAGS) {
+      selectedTags.value.push(newTag.id)
+    }
+    tagInputText.value = ''
+    closeSuggestions()
+    clearFieldError('tags')
+  } catch (err: unknown) {
+    searchTagError.value = getErrorMessage(err, 'Không thể tạo tag mới.')
+  } finally {
+    isTagCreating.value = false
+  }
+}
+
+function handleTagInputConfirm() {
+  if (highlightedSuggestionIndex.value >= 0 && highlightedSuggestionIndex.value < tagSuggestions.value.length) {
+    selectSuggestion(tagSuggestions.value[highlightedSuggestionIndex.value])
+    return
+  }
+
+  if (highlightedSuggestionIndex.value === tagSuggestions.value.length && canCreateNewTag.value) {
+    createAndAddCommunityTag()
+    return
+  }
+
+  if (canCreateNewTag.value) {
+    createAndAddCommunityTag()
+    return
+  }
+
+  if (tagSuggestions.value.length > 0) {
+    selectSuggestion(tagSuggestions.value[0])
+    return
+  }
+
+  if (normalizedInputTag.value) {
+    createAndAddCommunityTag()
+  }
+}
+
+function handleClickOutside(event: MouseEvent) {
+  if (tagInputContainerRef.value && !tagInputContainerRef.value.contains(event.target as Node)) {
+    closeSuggestions()
+  }
 }
 
 function clearFieldError(field: string) {
@@ -205,6 +404,13 @@ async function initializePage() {
       description.value = data.description || ''
       selectedGenres.value = data.genres ? data.genres.map((g) => g.id) : []
       selectedTags.value = data.tags ? data.tags.map((t) => t.id) : []
+      if (data.tags && Array.isArray(data.tags)) {
+        data.tags.forEach((t) => {
+          if (!availableTags.value.some((existing) => existing.id === t.id)) {
+            availableTags.value.push(t)
+          }
+        })
+      }
       existingCoverUrl.value = data.cover_url || null
     }
   } catch (err: unknown) {
@@ -359,11 +565,16 @@ onBeforeRouteLeave((_to, _from, next) => {
 
 onMounted(() => {
   window.addEventListener('beforeunload', handleBeforeUnload)
+  document.addEventListener('click', handleClickOutside)
   initializePage()
 })
 
 onUnmounted(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)
+  document.removeEventListener('click', handleClickOutside)
+  if (tagSearchTimer) {
+    clearTimeout(tagSearchTimer)
+  }
   if (coverPreviewUrl.value) {
     URL.revokeObjectURL(coverPreviewUrl.value)
   }
@@ -619,12 +830,46 @@ onUnmounted(() => {
 
             <!-- Genres Selection -->
             <div class="form-group" :class="{ 'has-error': fieldErrors.genres }">
-              <label class="form-label">
-                Thể loại truyện <span class="required-star">* (chọn ít nhất 1)</span>
-              </label>
+              <div class="genres-header">
+                <label for="comic-genre-search" class="form-label">
+                  Thể loại truyện <span class="required-star">* (chọn ít nhất 1)</span>
+                </label>
+                <span v-if="selectedGenres.length > 0" class="genres-counter">
+                  Đã chọn: {{ selectedGenres.length }} thể loại
+                </span>
+              </div>
+
+              <!-- Genre Search Input -->
+              <div class="genre-search-group">
+                <div class="genre-search-wrapper">
+                  <input
+                    id="comic-genre-search"
+                    v-model="genreSearchText"
+                    type="text"
+                    class="form-input genre-search-field"
+                    placeholder="Tìm kiếm thể loại..."
+                    maxlength="50"
+                    :disabled="isApprovedWithPendingChanges || isComicPendingReview || isSubmitting"
+                    @input="clearFieldError('genres')"
+                  />
+                  <button
+                    v-if="genreSearchText"
+                    type="button"
+                    class="genre-search-clear-btn"
+                    title="Xóa tìm kiếm"
+                    aria-label="Xóa tìm kiếm thể loại"
+                    @click="clearGenreSearch"
+                  >
+                    ✕
+                  </button>
+                  <span v-else class="genre-search-icon" aria-hidden="true">🔍</span>
+                </div>
+              </div>
+
+              <!-- Genres Chips (Selected first, then matching/popular unselected) -->
               <div class="chips-selector-grid">
                 <button
-                  v-for="genre in availableGenres"
+                  v-for="genre in displayedGenres"
                   :key="genre.id"
                   type="button"
                   class="chip-button"
@@ -638,6 +883,26 @@ onUnmounted(() => {
                   <span>{{ genre.name }}</span>
                 </button>
               </div>
+
+              <!-- No search results empty state -->
+              <div v-if="isSearchingGenres && displayedGenres.length === 0" class="genre-empty-result">
+                <span>Không tìm thấy thể loại nào phù hợp với "{{ genreSearchText }}".</span>
+              </div>
+
+              <!-- Expand / Collapse unselected genres toggle button -->
+              <div
+                v-if="!isSearchingGenres && (hasMoreUnselectedGenres || isGenreListExpanded)"
+                class="genre-toggle-wrapper"
+              >
+                <button
+                  type="button"
+                  class="genre-toggle-btn"
+                  @click="toggleExpandGenres"
+                >
+                  <span>{{ isGenreListExpanded ? '▲ Thu gọn bớt' : '▼ Xem thêm thể loại' }}</span>
+                </button>
+              </div>
+
               <span v-if="fieldErrors.genres" class="field-error" role="alert">
                 {{ fieldErrors.genres[0] }}
               </span>
@@ -646,17 +911,104 @@ onUnmounted(() => {
             <!-- Tags Selection (Max 10 per business rule) -->
             <div class="form-group" :class="{ 'has-error': fieldErrors.tags }">
               <div class="tags-header">
-                <label class="form-label">
-                  Nhãn đặc điểm (Tags)
+                <label for="comic-tag-input" class="form-label">
+                  Tag
                 </label>
                 <span class="tags-counter" :class="{ 'counter-max': isTagLimitReached }">
                   Đã chọn: {{ selectedTags.length }} / {{ MAX_TAGS }} tags
                 </span>
               </div>
 
+              <!-- Tag Input & Autocomplete Dropdown -->
+              <div ref="tagInputContainerRef" class="tag-input-group">
+                <div class="tag-input-wrapper">
+                  <input
+                    id="comic-tag-input"
+                    v-model="tagInputText"
+                    type="text"
+                    class="form-input tag-input-field"
+                    placeholder="Nhập Tag..."
+                    maxlength="50"
+                    :disabled="isApprovedWithPendingChanges || isComicPendingReview || isSubmitting || isTagLimitReached"
+                    @input="handleTagInput"
+                    @keydown.enter.prevent="handleTagInputConfirm"
+                    @keydown.down.prevent="navigateSuggestion(1)"
+                    @keydown.up.prevent="navigateSuggestion(-1)"
+                    @keydown.esc="closeSuggestions"
+                    @focus="handleTagInputFocus"
+                  />
+                  <button
+                    type="button"
+                    class="tag-add-btn"
+                    :disabled="!normalizedInputTag || isApprovedWithPendingChanges || isComicPendingReview || isSubmitting || isTagLimitReached || isTagCreating"
+                    title="Thêm tag"
+                    @click="handleTagInputConfirm"
+                  >
+                    <span v-if="isTagCreating" class="tag-spinner-sm" aria-hidden="true"></span>
+                    <span v-else aria-hidden="true">+</span>
+                  </button>
+                </div>
+
+                <!-- Autocomplete Dropdown -->
+                <div
+                  v-if="isDropdownOpen && (isSearchingTags || tagSuggestions.length > 0 || normalizedInputTag || searchTagError)"
+                  class="tag-autocomplete-dropdown"
+                  role="listbox"
+                >
+                  <!-- Loading state -->
+                  <div v-if="isSearchingTags" class="tag-dropdown-status">
+                    <span class="tag-spinner-sm" aria-hidden="true"></span>
+                    <span>Đang tìm kiếm...</span>
+                  </div>
+
+                  <!-- Error state -->
+                  <div v-else-if="searchTagError" class="tag-dropdown-error">
+                    {{ searchTagError }}
+                  </div>
+
+                  <!-- Suggestions list -->
+                  <template v-else>
+                    <div
+                      v-for="(suggestion, idx) in tagSuggestions"
+                      :key="suggestion.id"
+                      class="tag-dropdown-item"
+                      :class="{ active: highlightedSuggestionIndex === idx }"
+                      role="option"
+                      :aria-selected="highlightedSuggestionIndex === idx"
+                      @mousedown.prevent="selectSuggestion(suggestion)"
+                      @mouseenter="highlightedSuggestionIndex = idx"
+                    >
+                      <span class="tag-item-name">#{{ suggestion.name }}</span>
+                      <span v-if="suggestion.slug && suggestion.slug !== suggestion.name" class="tag-item-slug">
+                        ({{ suggestion.slug }})
+                      </span>
+                    </div>
+
+                    <!-- Empty state when no suggestions and no new tag can be created -->
+                    <div v-if="tagSuggestions.length === 0 && !canCreateNewTag" class="tag-dropdown-empty">
+                      Không tìm thấy tag phù hợp.
+                    </div>
+                  </template>
+
+                  <!-- Create new item (shown if user typed something valid and it's not already in suggestions) -->
+                  <div
+                    v-if="canCreateNewTag"
+                    class="tag-dropdown-create"
+                    :class="{ active: highlightedSuggestionIndex === tagSuggestions.length }"
+                    role="option"
+                    :aria-selected="highlightedSuggestionIndex === tagSuggestions.length"
+                    @mousedown.prevent="createAndAddCommunityTag"
+                    @mouseenter="highlightedSuggestionIndex = tagSuggestions.length"
+                  >
+                    <span class="tag-create-icon">+</span>
+                    <span>Tạo mới: <strong class="tag-create-highlight">#{{ normalizedInputTag }}</strong></span>
+                  </div>
+                </div>
+              </div>
+
               <div class="chips-selector-grid">
                 <button
-                  v-for="tag in availableTags"
+                  v-for="tag in displayedTags"
                   :key="tag.id"
                   type="button"
                   class="chip-button tag-chip"
@@ -1018,6 +1370,97 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 
+/* Genres Header, Search & Expand */
+.genres-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.genres-counter {
+  font-size: var(--font-size-xs);
+  color: var(--color-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.genre-search-group {
+  position: relative;
+  margin-top: 8px;
+  margin-bottom: 12px;
+}
+
+.genre-search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.genre-search-field {
+  width: 100%;
+  padding-right: 36px;
+}
+
+.genre-search-icon {
+  position: absolute;
+  right: 12px;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.genre-search-clear-btn {
+  position: absolute;
+  right: 10px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.genre-search-clear-btn:hover {
+  color: var(--color-text-primary);
+}
+
+.genre-empty-result {
+  margin-top: 10px;
+  padding: 10px 14px;
+  background-color: var(--color-bg-surface-raised, #161b22);
+  border: 1px dashed var(--color-border-subtle, #30363d);
+  border-radius: var(--radius-md, 8px);
+  font-size: var(--font-size-xs, 12px);
+  color: var(--color-text-muted, #8b949e);
+  text-align: center;
+}
+
+.genre-toggle-wrapper {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.genre-toggle-btn {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.genre-toggle-btn:hover {
+  background-color: var(--color-bg-elevated);
+  color: var(--color-primary);
+  border-color: var(--color-primary-soft);
+}
+
 .tag-chip {
   border-radius: var(--radius-sm);
 }
@@ -1042,6 +1485,148 @@ onUnmounted(() => {
   margin: 6px 0 0 0;
   font-size: 11px;
   color: #fbbf24;
+}
+
+/* Tag Input & Autocomplete */
+.tag-input-group {
+  position: relative;
+  margin-top: 8px;
+  margin-bottom: 12px;
+}
+
+.tag-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tag-input-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.tag-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  width: 40px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md, 8px);
+  background-color: var(--color-bg-surface-raised, #21262d);
+  border: 1px solid var(--color-border-subtle, #30363d);
+  color: var(--color-text-main, #e6edf3);
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tag-add-btn:hover:not(:disabled) {
+  background-color: var(--color-primary, #388bfd);
+  border-color: var(--color-primary, #388bfd);
+  color: #fff;
+}
+
+.tag-add-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.tag-spinner-sm {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: tag-spin 0.6s linear infinite;
+  display: inline-block;
+}
+
+@keyframes tag-spin {
+  to { transform: rotate(360deg); }
+}
+
+.tag-autocomplete-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background-color: var(--color-bg-surface-raised, #161b22);
+  border: 1px solid var(--color-border-subtle, #30363d);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 60;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.tag-dropdown-status,
+.tag-dropdown-empty,
+.tag-dropdown-error {
+  padding: 10px 14px;
+  font-size: var(--font-size-xs, 12px);
+  color: var(--color-text-muted, #8b949e);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tag-dropdown-error {
+  color: #f87171;
+}
+
+.tag-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  font-size: var(--font-size-sm, 13px);
+  color: var(--color-text-main, #e6edf3);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.tag-dropdown-item:hover,
+.tag-dropdown-item.active {
+  background-color: rgba(56, 139, 253, 0.15);
+  color: var(--color-primary, #388bfd);
+}
+
+.tag-item-name {
+  font-weight: var(--font-weight-medium, 500);
+}
+
+.tag-item-slug {
+  font-size: 11px;
+  color: var(--color-text-muted, #8b949e);
+}
+
+.tag-dropdown-create {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  font-size: var(--font-size-sm, 13px);
+  color: var(--color-primary, #388bfd);
+  cursor: pointer;
+  border-top: 1px solid var(--color-border-subtle, #30363d);
+  transition: background-color 0.15s ease;
+}
+
+.tag-dropdown-create:hover,
+.tag-dropdown-create.active {
+  background-color: rgba(56, 139, 253, 0.2);
+}
+
+.tag-create-icon {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.tag-create-highlight {
+  color: #fff;
+  font-weight: 600;
 }
 
 /* Cover Upload Panel */

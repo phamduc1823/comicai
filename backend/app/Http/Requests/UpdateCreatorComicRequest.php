@@ -49,7 +49,7 @@ class UpdateCreatorComicRequest extends FormRequest
             'genres' => ['sometimes', 'required', 'array', 'min:1'],
             'genres.*' => ['integer', 'exists:genres,id'],
             'tags' => ['nullable', 'array', 'max:10'],
-            'tags.*' => ['integer', 'exists:tags,id'],
+            'tags.*' => ['integer', 'distinct', 'exists:tags,id'],
         ];
     }
 

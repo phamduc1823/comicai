@@ -1,5 +1,5 @@
 import { httpClient } from './httpClient'
-import type { PaginatedResponse, SingleResponse } from '@/types/catalog'
+import type { PaginatedResponse, SingleResponse, Tag } from '@/types/catalog'
 import type {
   CreatorComic,
   ListCreatorComicsParams,
@@ -16,6 +16,24 @@ import type {
 } from '@/types/creator'
 
 export class CreatorService {
+  /**
+   * Create or retrieve an existing community tag.
+   * POST /api/creator/tags
+   */
+  static async createCommunityTag(name: string): Promise<{
+    status: string
+    message: string
+    data: Tag
+    is_new: boolean
+  }> {
+    const response = await httpClient.post<{
+      status: string
+      message: string
+      data: Tag
+      is_new: boolean
+    }>('/creator/tags', { name })
+    return response.data
+  }
   /**
    * Fetch paginated list of comics owned by authenticated Creator (or all for Admin).
    * GET /api/creator/comics

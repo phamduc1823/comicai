@@ -33,6 +33,24 @@ export class CatalogService {
   }
 
   /**
+   * Fetch tag autocomplete suggestions.
+   * GET /api/tags/suggestions?q=...&exclude=...
+   */
+  static async getTagSuggestions(
+    query: string,
+    excludeIds?: number[]
+  ): Promise<CollectionResponse<Tag>> {
+    const params: Record<string, string> = { q: query }
+    if (excludeIds && excludeIds.length > 0) {
+      params.exclude = excludeIds.join(',')
+    }
+    const response = await httpClient.get<CollectionResponse<Tag>>('/tags/suggestions', {
+      params,
+    })
+    return response.data
+  }
+
+  /**
    * Fetch all active banners of approved comics ordered by sort_order.
    * GET /api/banners
    */
