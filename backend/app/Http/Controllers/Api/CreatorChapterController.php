@@ -12,6 +12,7 @@ use App\Http\Resources\CreatorChapterResource;
 use App\Models\Chapter;
 use App\Models\ChapterImage;
 use App\Models\Comic;
+use App\Services\NotificationService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -56,7 +57,44 @@ class CreatorChapterController extends Controller
     }
 
     /**
-     * Store a newly created chapter in draft state for a comic.
+     * Get the next auto-assigned chapter number and any gap/missing numbers.
+     */
+    public function nextChapterNumber(int|string $comicId): JsonResponse
+    {
+        $comic = Comic::findOrFail($comicId);
+        $this->authorize('viewAny', [Chapter::class, $comic]);
+
+        $existingNumbers = Chapter::query()
+            ->where('comic_id', $comic->id)
+            ->orderBy('chapter_number', 'asc')
+            ->pluck('chapter_number')
+            ->map(fn ($n) => (int) $n)
+            ->unique()
+            ->values();
+
+        $maxNum = $existingNumbers->max() ?? 0;
+        $nextNum = $maxNum + 1;
+
+        $missingNumbers = [];
+        for ($i = 1; $i < $maxNum; $i++) {
+            if (! $existingNumbers->contains($i)) {
+                $missingNumbers[] = $i;
+            }
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'comic_id' => $comic->id,
+                'next_chapter_number' => $nextNum,
+                'missing_chapter_numbers' => $missingNumbers,
+                'existing_chapter_numbers' => $existingNumbers->all(),
+            ],
+        ]);
+    }
+
+    /**
+     * Store a newly created chapter in draft state for a comic with atomic integer numbering.
      */
     public function store(StoreCreatorChapterRequest $request, int|string $comicId): JsonResponse
     {
@@ -64,25 +102,75 @@ class CreatorChapterController extends Controller
         $this->authorize('create', [Chapter::class, $comic]);
 
         $validated = $request->validated();
-        $canonicalNumber = sprintf('%.2f', (float) $validated['chapter_number']);
-        $numClean = rtrim(rtrim($canonicalNumber, '0'), '.');
         $title = $validated['title'] ?? null;
-        $titlePart = ! empty($title) ? '-' . Str::slug($title) : '';
-        $slug = Str::limit('chuong-' . $numClean . $titlePart, 175, '');
+        $isVip = (bool) ($validated['is_vip'] ?? false);
+        $price = $isVip ? (int) ($validated['price'] ?? config('vip.default_price', 10)) : 0;
 
-        $chapter = new Chapter();
-        $chapter->comic_id = $comic->id;
-        $chapter->chapter_number = $canonicalNumber;
-        $chapter->title = $title;
-        $chapter->slug = $slug;
-        $chapter->status = 'draft';
-        $chapter->rejection_reason = null;
-        $chapter->views_count = 0;
-        $chapter->is_vip = (bool) ($validated['is_vip'] ?? false);
-        $chapter->price = $chapter->is_vip
-            ? (int) ($validated['price'] ?? config('vip.default_price', 10))
-            : 0;
-        $chapter->save();
+        $chapter = DB::transaction(function () use ($comic, $validated, $title, $isVip, $price) {
+            // Lock comic row to prevent race conditions during concurrent chapter creation
+            $lockedComic = Comic::where('id', $comic->id)->lockForUpdate()->firstOrFail();
+
+            $existingNumbers = Chapter::query()
+                ->where('comic_id', $lockedComic->id)
+                ->lockForUpdate()
+                ->pluck('chapter_number')
+                ->map(fn ($n) => (int) $n)
+                ->unique()
+                ->values();
+
+            $maxNum = $existingNumbers->max() ?? 0;
+            $nextNum = $maxNum + 1;
+
+            $missingNumbers = [];
+            for ($i = 1; $i < $maxNum; $i++) {
+                if (! $existingNumbers->contains($i)) {
+                    $missingNumbers[] = $i;
+                }
+            }
+
+            // Determine final integer chapter number
+            if (isset($validated['chapter_number']) && $validated['chapter_number'] !== '' && $validated['chapter_number'] !== null) {
+                $rawInput = (int) $validated['chapter_number'];
+                if ($rawInput <= 0) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'chapter_number' => ['Số chương phải là số nguyên dương lớn hơn 0.'],
+                    ]);
+                }
+
+                if ($existingNumbers->contains($rawInput)) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'chapter_number' => ["Số thứ tự chương {$rawInput} đã tồn tại trong bộ truyện này."],
+                    ]);
+                }
+
+                // If user chose an available missing gap, accept it; otherwise default to next sequential
+                if (in_array($rawInput, $missingNumbers, true)) {
+                    $finalNumber = $rawInput;
+                } else {
+                    $finalNumber = $nextNum;
+                }
+            } else {
+                $finalNumber = $nextNum;
+            }
+
+            $canonicalNumber = (string) $finalNumber;
+            $titlePart = ! empty($title) ? '-' . Str::slug($title) : '';
+            $slug = Str::limit('chuong-' . $finalNumber . $titlePart, 175, '');
+
+            $newChapter = new Chapter();
+            $newChapter->comic_id = $lockedComic->id;
+            $newChapter->chapter_number = $canonicalNumber;
+            $newChapter->title = $title;
+            $newChapter->slug = $slug;
+            $newChapter->status = 'draft';
+            $newChapter->rejection_reason = null;
+            $newChapter->views_count = 0;
+            $newChapter->is_vip = $isVip;
+            $newChapter->price = $price;
+            $newChapter->save();
+
+            return $newChapter;
+        });
 
         $chapter->load(['comic:id,title,slug,user_id', 'images']);
 
@@ -162,10 +250,11 @@ class CreatorChapterController extends Controller
             }
 
             if (isset($validated['chapter_number'])) {
-                $canonicalNumber = sprintf('%.2f', (float) $validated['chapter_number']);
+                $rawNum = (int) $validated['chapter_number'];
+                $canonicalNumber = (string) $rawNum;
                 $locked->chapter_number = $canonicalNumber;
             } else {
-                $canonicalNumber = sprintf('%.2f', (float) $locked->chapter_number);
+                $canonicalNumber = (string) (int) (float) $locked->chapter_number;
             }
 
             if (array_key_exists('title', $validated)) {
@@ -184,7 +273,7 @@ class CreatorChapterController extends Controller
                 $locked->price = 0;
             }
 
-            $numClean = rtrim(rtrim($canonicalNumber, '0'), '.');
+            $numClean = $canonicalNumber;
             $titlePart = ! empty($locked->title) ? '-' . Str::slug($locked->title) : '';
             $locked->slug = Str::limit('chuong-' . $numClean . $titlePart, 175, '');
 
@@ -430,6 +519,85 @@ class CreatorChapterController extends Controller
             'status' => 'success',
             'message' => 'Gửi duyệt chương thành công.',
             'data' => new CreatorChapterResource($chapter),
+        ]);
+    }
+
+    /**
+     * Bulk submit review for multiple draft/rejected chapters of a comic.
+     */
+    public function bulkSubmitReview(Request $request, int|string $comicId, NotificationService $notificationService): JsonResponse
+    {
+        $comic = Comic::findOrFail($comicId);
+        $this->authorize('bulkSubmitReview', [Chapter::class, $comic]);
+
+        $validated = $request->validate([
+            'chapter_ids' => ['required', 'array', 'min:1'],
+            'chapter_ids.*' => ['integer', 'distinct'],
+        ], [
+            'chapter_ids.required' => 'Vui lòng chọn ít nhất một chương để gửi duyệt.',
+            'chapter_ids.min' => 'Vui lòng chọn ít nhất một chương để gửi duyệt.',
+            'chapter_ids.*.integer' => 'Mã chương không hợp lệ.',
+        ]);
+
+        $selectedChapterIds = array_values(array_unique(array_map('intval', $validated['chapter_ids'])));
+        $chapters = Chapter::withCount('images')
+            ->whereIn('id', $selectedChapterIds)
+            ->get();
+
+        if ($chapters->count() !== count($selectedChapterIds)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Một hoặc nhiều chương được chọn không tồn tại.',
+            ], 422);
+        }
+
+        foreach ($chapters as $chapter) {
+            if ((int) $chapter->comic_id !== (int) $comic->id) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Một hoặc nhiều chương không thuộc bộ truyện này.',
+                ], 422);
+            }
+
+            $chapNum = rtrim(rtrim((string) $chapter->chapter_number, '0'), '.');
+            if (! in_array($chapter->status, ['draft', 'rejected'], true)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => "Chỉ có thể gửi duyệt các chương ở trạng thái bản nháp hoặc bị từ chối (Chương #{$chapNum} đang ở trạng thái '{$chapter->status}').",
+                ], 422);
+            }
+
+            if ($chapter->images_count === 0) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => "Chương #{$chapNum} phải có ít nhất một ảnh trước khi gửi duyệt.",
+                ], 422);
+            }
+        }
+
+        DB::transaction(function () use ($selectedChapterIds) {
+            Chapter::whereIn('id', $selectedChapterIds)
+                ->lockForUpdate()
+                ->update([
+                    'status' => 'pending',
+                    'rejection_reason' => null,
+                    'updated_at' => now(),
+                ]);
+        });
+
+        $submittedCount = count($selectedChapterIds);
+        $creator = $request->user();
+        if ($creator) {
+            $notificationService->notifyComicSubmittedForReview($comic, $creator, $submittedCount);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "Đã gửi duyệt {$submittedCount} chương thành công.",
+            'data' => [
+                'submitted_count' => $submittedCount,
+                'chapter_ids' => $selectedChapterIds,
+            ],
         ]);
     }
 

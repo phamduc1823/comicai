@@ -24,18 +24,6 @@ class UpdateCreatorChapterRequest extends FormRequest
     }
 
     /**
-     * Prepare the data for validation.
-     */
-    protected function prepareForValidation(): void
-    {
-        if ($this->has('chapter_number') && is_numeric($this->input('chapter_number'))) {
-            $this->merge([
-                'chapter_number' => sprintf('%.2f', (float) $this->input('chapter_number')),
-            ]);
-        }
-    }
-
-    /**
      * Get the validation rules that apply to the request.
      *
      * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
@@ -49,11 +37,10 @@ class UpdateCreatorChapterRequest extends FormRequest
         return [
             'chapter_number' => [
                 'sometimes',
-                'required',
-                'numeric',
-                'min:0',
-                'max:9999.99',
-                'regex:/^[0-9]{1,4}(\.[0-9]{1,2})?$/',
+                'nullable',
+                'integer',
+                'min:1',
+                'max:999999',
                 Rule::unique('chapters', 'chapter_number')->where('comic_id', $comicId)->ignore($chapterId),
             ],
             'title' => ['nullable', 'string', 'max:150'],

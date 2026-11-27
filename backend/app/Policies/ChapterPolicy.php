@@ -71,6 +71,22 @@ class ChapterPolicy
     }
 
     /**
+     * Determine whether the user can bulk submit chapters for review for a comic.
+     */
+    public function bulkSubmitReview(User $user, Comic $comic): bool
+    {
+        if ($user->role === 'admin') {
+            return true;
+        }
+
+        if ($user->role === 'creator') {
+            return (int) $comic->user_id === (int) $user->id;
+        }
+
+        return false;
+    }
+
+    /**
      * Determine whether the user can update the chapter details.
      * - Admin can update any chapter.
      * - Creator can only update chapter of their comic, and cannot edit when status is 'pending'.

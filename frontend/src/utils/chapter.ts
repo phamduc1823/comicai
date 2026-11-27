@@ -3,19 +3,17 @@
  */
 
 /**
- * Normalizes a chapter number string or number to a clean, user-friendly string.
- * Strips unnecessary trailing decimal zeroes while preserving actual decimals.
- * Examples:
+ * Normalizes a chapter number string or number to a clean, user-friendly integer string.
+ * Enforces integer chapter representation:
  * - '1.00' -> '1'
- * - '1.50' -> '1.5'
- * - '10.25' -> '10.25'
- * - 2 -> '2'
+ * - '2' -> '2'
+ * - 3 -> '3'
  */
 export function formatChapterNumber(raw: string | number | null | undefined): string {
   if (raw === null || raw === undefined) return ''
   const num = typeof raw === 'number' ? raw : parseFloat(String(raw).trim())
   if (isNaN(num)) return String(raw).trim()
-  return num.toString()
+  return Math.round(num).toString()
 }
 
 /**

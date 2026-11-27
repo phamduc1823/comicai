@@ -246,6 +246,28 @@ export class CreatorService {
   }
 
   /**
+   * Fetch the next expected chapter number and missing gap numbers.
+   * GET /api/creator/comics/{comicId}/chapters/next-number
+   */
+  static async getNextChapterNumber(
+    comicId: number | string
+  ): Promise<SingleResponse<{
+    comic_id: number
+    next_chapter_number: number
+    missing_chapter_numbers: number[]
+    existing_chapter_numbers: number[]
+  }>> {
+    const encodedComicId = encodeURIComponent(String(comicId))
+    const response = await httpClient.get<SingleResponse<{
+      comic_id: number
+      next_chapter_number: number
+      missing_chapter_numbers: number[]
+      existing_chapter_numbers: number[]
+    }>>(`/creator/comics/${encodedComicId}/chapters/next-number`)
+    return response.data
+  }
+
+  /**
    * Create a new chapter in draft state for a comic.
    * POST /api/creator/comics/{comicId}/chapters
    */
@@ -310,6 +332,23 @@ export class CreatorService {
     const response = await httpClient.post<SingleResponse<CreatorChapter>>(
       `/creator/chapters/${encodedId}/submit-review`
     )
+    return response.data
+  }
+
+  /**
+   * Bulk submit review for multiple draft/rejected chapters of a comic.
+   * POST /api/creator/comics/{comicId}/chapters/bulk-submit-review
+   */
+  static async bulkSubmitChapterReview(
+    comicId: number | string,
+    chapterIds: number[]
+  ): Promise<ActionSuccessResponse & { data?: { submitted_count: number; chapter_ids: number[] } }> {
+    const encodedComicId = encodeURIComponent(String(comicId))
+    const response = await httpClient.post<
+      ActionSuccessResponse & { data?: { submitted_count: number; chapter_ids: number[] } }
+    >(`/creator/comics/${encodedComicId}/chapters/bulk-submit-review`, {
+      chapter_ids: chapterIds,
+    })
     return response.data
   }
 

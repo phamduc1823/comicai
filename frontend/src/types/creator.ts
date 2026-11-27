@@ -174,7 +174,7 @@ export interface ListCreatorChaptersParams {
  * Payload sent to POST /api/creator/comics/{comicId}/chapters.
  */
 export interface CreateChapterPayload {
-  chapter_number: number | string
+  chapter_number?: number | string
   title?: string | null
   is_vip?: boolean
   price?: number

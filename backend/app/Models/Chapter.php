@@ -50,14 +50,13 @@ class Chapter extends Model
 
     /**
      * Get the attributes that should be cast.
-     * 'chapter_number' is cast to decimal:2 to preserve exact precision without binary float distortion.
      *
      * @return array<string, string>
      */
     protected function casts(): array
     {
         return [
-            'chapter_number' => 'decimal:2',
+            'chapter_number' => 'integer',
             'views_count' => 'integer',
             'approved_at' => 'datetime',
             'is_vip' => 'boolean',

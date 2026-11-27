@@ -114,20 +114,19 @@ function handleCoverError() {
 function formatChapterNumberDisplay(rawNum: string | number): string {
   const n = parseFloat(String(rawNum))
   if (isNaN(n)) return `Chương ${rawNum}`
-  const formatted = Number.isInteger(n) ? n.toString() : parseFloat(n.toFixed(2)).toString()
+  const formatted = Math.round(n).toString()
   return `Chương ${formatted}`
 }
 
 /**
- * Extract clean string representation of chapter number for URLs and editing forms:
+ * Extract clean integer string representation of chapter number:
  * "1.00" -> "1"
- * "1.50" -> "1.5"
- * "2.25" -> "2.25"
+ * "2" -> "2"
  */
 function getCleanChapterNumber(rawNum: string | number): string {
   const n = parseFloat(String(rawNum))
   if (isNaN(n)) return String(rawNum)
-  return Number.isInteger(n) ? n.toString() : parseFloat(n.toFixed(2)).toString()
+  return Math.round(n).toString()
 }
 
 /**
@@ -291,6 +290,16 @@ const formValues = reactive({
   title: '',
 })
 
+// Auto-numbering and gap selection state
+const nextNumberData = ref<{
+  comic_id: number
+  next_chapter_number: number
+  missing_chapter_numbers: number[]
+  existing_chapter_numbers: number[]
+} | null>(null)
+const isLoadingNextNumber = ref(false)
+const selectedChapterChoice = ref<'next' | number>('next')
+
 // Field-specific validation errors (e.g. from 422 or frontend checks)
 const formErrors = reactive<{
   chapter_number: string | null
@@ -329,12 +338,29 @@ function resetForm() {
   formSubmitError.value = null
   editingChapter.value = null
   isSubmittingForm.value = false
+  selectedChapterChoice.value = 'next'
 }
 
-function openCreateModal() {
+async function openCreateModal() {
   resetForm()
   formModalMode.value = 'create'
   formModalOpen.value = true
+  isLoadingNextNumber.value = true
+  try {
+    const res = await CreatorService.getNextChapterNumber(comicId.value)
+    nextNumberData.value = res.data
+  } catch (err: unknown) {
+    const nums = chapters.value.map((c) => Math.round(Number(c.chapter_number))).filter((n) => !isNaN(n) && n > 0)
+    const maxN = nums.length > 0 ? Math.max(...nums) : 0
+    nextNumberData.value = {
+      comic_id: Number(comicId.value),
+      next_chapter_number: maxN + 1,
+      missing_chapter_numbers: [],
+      existing_chapter_numbers: nums,
+    }
+  } finally {
+    isLoadingNextNumber.value = false
+  }
 }
 
 function openEditModal(chapter: CreatorChapter) {
@@ -371,28 +397,6 @@ function validateChapterForm(): boolean {
   formErrors.title = null
   formSubmitError.value = null
 
-  const numTrimmed = formValues.chapter_number.trim()
-
-  // chapter_number validation
-  if (!numTrimmed) {
-    formErrors.chapter_number = 'Số thứ tự chương là bắt buộc.'
-    isValid = false
-  } else {
-    // Regex matches 1-4 digits integer or decimal with up to 2 decimal places
-    const regex = /^[0-9]{1,4}(\.[0-9]{1,2})?$/
-    if (!regex.test(numTrimmed)) {
-      formErrors.chapter_number =
-        'Số chương không hợp lệ. Phải là số từ 0 đến 9999.99 và tối đa 2 chữ số thập phân.'
-      isValid = false
-    } else {
-      const parsed = parseFloat(numTrimmed)
-      if (isNaN(parsed) || parsed < 0 || parsed > 9999.99) {
-        formErrors.chapter_number = 'Số chương phải nằm trong khoảng từ 0 đến 9999.99.'
-        isValid = false
-      }
-    }
-  }
-
   // title validation (optional, max 150 chars)
   if (formValues.title && formValues.title.trim().length > 150) {
     formErrors.title = 'Tiêu đề chương không được vượt quá 150 ký tự.'
@@ -427,19 +431,25 @@ async function handleSubmitChapterForm() {
 
   try {
     if (formModalMode.value === 'create') {
+      let chosenNum: number | undefined = undefined
+      if (selectedChapterChoice.value !== 'next') {
+        chosenNum = Number(selectedChapterChoice.value)
+      } else if (nextNumberData.value) {
+        chosenNum = nextNumberData.value.next_chapter_number
+      }
+
       const payload: CreateChapterPayload = {
-        chapter_number: formValues.chapter_number.trim(),
+        chapter_number: chosenNum,
         title: formValues.title.trim() || null,
       }
       const res = await CreatorService.createChapter(comicId.value, payload)
       formModalOpen.value = false
       showSuccessToast(`Đã tạo ${formatChapterNumberDisplay(res.data.chapter_number)} thành công.`)
-      // Refresh comic metadata (to get updated chapter count) and chapter list
+      // Refresh comic metadata and chapter list
       await loadComicDetails()
       await loadChapters(1)
     } else if (formModalMode.value === 'edit' && editingChapter.value) {
       const payload: UpdateChapterPayload = {
-        chapter_number: formValues.chapter_number.trim(),
         title: formValues.title.trim() || null,
       }
       const res = await CreatorService.updateChapter(editingChapter.value.id, payload)
@@ -613,6 +623,162 @@ function navigateToImages(chapterId: number) {
     name: 'creator-chapter-images',
     params: { id: String(chapterId) },
   })
+}
+
+// -------------------------------------------------------------
+// Bulk Submit Review (CAI-CHAPTER-BULK)
+// -------------------------------------------------------------
+
+const selectedChapterIds = ref<number[]>([])
+const isBulkSubmitModalOpen = ref(false)
+const bulkReviewableChapters = ref<CreatorChapter[]>([])
+const isLoadingBulkChapters = ref(false)
+const isBulkSubmitting = ref(false)
+const bulkSubmitError = ref<string | null>(null)
+
+/**
+ * Filter reviewable chapters that have at least 1 image
+ */
+const eligibleBulkChapters = computed(() => {
+  return bulkReviewableChapters.value.filter(
+    (c) => (c.status === 'draft' || c.status === 'rejected') && (c.images_count || 0) > 0
+  )
+})
+
+/**
+ * Filter selectable chapters on current visible table page
+ */
+const visibleSelectableChapters = computed(() => {
+  return chapters.value.filter(
+    (c) => (c.status === 'draft' || c.status === 'rejected') && (c.images_count || 0) > 0
+  )
+})
+
+/**
+ * Whether all selectable chapters on current visible page are checked
+ */
+const isAllVisibleSelected = computed(() => {
+  const selectable = visibleSelectableChapters.value
+  return selectable.length > 0 && selectable.every((c) => selectedChapterIds.value.includes(c.id))
+})
+
+/**
+ * Whether some (but not all) selectable chapters on current visible page are checked
+ */
+const isSomeVisibleSelected = computed(() => {
+  const selectable = visibleSelectableChapters.value
+  return selectable.some((c) => selectedChapterIds.value.includes(c.id)) && !isAllVisibleSelected.value
+})
+
+/**
+ * Check if a specific chapter can be selected for review
+ */
+function isChapterSelectable(chap: CreatorChapter): boolean {
+  return (chap.status === 'draft' || chap.status === 'rejected') && (chap.images_count || 0) > 0
+}
+
+/**
+ * Toggle single chapter selection
+ */
+function toggleChapterSelection(id: number) {
+  const idx = selectedChapterIds.value.indexOf(id)
+  if (idx > -1) {
+    selectedChapterIds.value.splice(idx, 1)
+  } else {
+    selectedChapterIds.value.push(id)
+  }
+}
+
+/**
+ * Toggle select all visible selectable chapters on current table page
+ */
+function toggleSelectAllVisible() {
+  const selectableIds = visibleSelectableChapters.value.map((c) => c.id)
+  if (isAllVisibleSelected.value) {
+    selectedChapterIds.value = selectedChapterIds.value.filter((id) => !selectableIds.includes(id))
+  } else {
+    const merged = new Set([...selectedChapterIds.value, ...selectableIds])
+    selectedChapterIds.value = Array.from(merged)
+  }
+}
+
+/**
+ * Open Bulk Submit Modal: loads all reviewable chapters (draft/rejected) for this comic
+ */
+async function openBulkSubmitModal() {
+  if (!comicId.value) return
+  isBulkSubmitModalOpen.value = true
+  bulkSubmitError.value = null
+  isLoadingBulkChapters.value = true
+
+  try {
+    const res = await CreatorService.getChapters(comicId.value, {
+      status: 'reviewable',
+      per_page: 100,
+    })
+    bulkReviewableChapters.value = res.data || []
+
+    // If user has not pre-selected anything on table, auto-select all eligible chapters
+    if (selectedChapterIds.value.length === 0) {
+      selectedChapterIds.value = bulkReviewableChapters.value
+        .filter((c) => (c.images_count || 0) > 0)
+        .map((c) => c.id)
+    } else {
+      // Retain only valid IDs from reviewable list that have images
+      const validIds = new Set(
+        bulkReviewableChapters.value
+          .filter((c) => (c.images_count || 0) > 0)
+          .map((c) => c.id)
+      )
+      selectedChapterIds.value = selectedChapterIds.value.filter((id) => validIds.has(id))
+      // If table selections became empty due to filters, select all eligible
+      if (selectedChapterIds.value.length === 0) {
+        selectedChapterIds.value = Array.from(validIds)
+      }
+    }
+  } catch (err: unknown) {
+    bulkSubmitError.value = getErrorMessage(err, 'Không thể tải danh sách chương.')
+  } finally {
+    isLoadingBulkChapters.value = false
+  }
+}
+
+function selectAllBulkChapters() {
+  selectedChapterIds.value = eligibleBulkChapters.value.map((c) => c.id)
+}
+
+function deselectAllBulkChapters() {
+  selectedChapterIds.value = []
+}
+
+function closeBulkSubmitModal() {
+  if (isBulkSubmitting.value) return
+  isBulkSubmitModalOpen.value = false
+  bulkSubmitError.value = null
+}
+
+/**
+ * Submit selected chapters for admin review
+ */
+async function handleConfirmBulkSubmit() {
+  if (!comicId.value || isBulkSubmitting.value || selectedChapterIds.value.length === 0) return
+  isBulkSubmitting.value = true
+  bulkSubmitError.value = null
+  const countToSubmit = selectedChapterIds.value.length
+
+  try {
+    await CreatorService.bulkSubmitChapterReview(comicId.value, selectedChapterIds.value)
+    isBulkSubmitModalOpen.value = false
+    selectedChapterIds.value = []
+    bulkReviewableChapters.value = []
+    showSuccessToast(`Đã gửi duyệt ${countToSubmit} chương thành công.`)
+    await loadComicDetails()
+    await loadChapters(currentPage.value)
+  } catch (err: unknown) {
+    bulkSubmitError.value = getErrorMessage(err, 'Không thể gửi duyệt các chương đã chọn.')
+  } finally {
+    isBulkSubmitting.value = false
+  }
 }
 
 // -------------------------------------------------------------
@@ -802,6 +968,17 @@ watch(
             <div class="comic-header-actions">
               <button
                 type="button"
+                class="btn btn-secondary btn-bulk-submit"
+                :disabled="isActionLoading || isBulkSubmitting"
+                title="Gửi duyệt nhiều chương cùng lúc"
+                @click="openBulkSubmitModal"
+              >
+                <span class="btn-icon" aria-hidden="true">🚀</span>
+                <span>Gửi duyệt hàng loạt</span>
+                <span v-if="selectedChapterIds.length > 0" class="btn-count-pill">{{ selectedChapterIds.length }}</span>
+              </button>
+              <button
+                type="button"
                 class="btn btn-primary btn-add-chapter"
                 @click="openCreateModal"
               >
@@ -924,6 +1101,16 @@ watch(
             <table class="chapters-table">
               <thead>
                 <tr>
+                  <th scope="col" class="th-select">
+                    <input
+                      type="checkbox"
+                      :checked="isAllVisibleSelected"
+                      :indeterminate.prop="isSomeVisibleSelected"
+                      :disabled="visibleSelectableChapters.length === 0 || isActionLoading"
+                      aria-label="Chọn tất cả chương trên trang hiện tại"
+                      @change="toggleSelectAllVisible"
+                    />
+                  </th>
                   <th scope="col" class="th-number">Số chương</th>
                   <th scope="col" class="th-title">Tiêu đề chương</th>
                   <th scope="col" class="th-images">Số ảnh</th>
@@ -938,8 +1125,33 @@ watch(
                   v-for="chap in chapters"
                   :key="chap.id"
                   class="chapter-row"
-                  :class="`row-status-${chap.status}`"
+                  :class="[
+                    `row-status-${chap.status}`,
+                    { 'is-row-selected': selectedChapterIds.includes(chap.id) }
+                  ]"
                 >
+                  <!-- Selection Checkbox -->
+                  <td class="td-select">
+                    <input
+                      v-if="isChapterSelectable(chap)"
+                      type="checkbox"
+                      :checked="selectedChapterIds.includes(chap.id)"
+                      :disabled="isActionLoading || isBulkSubmitting"
+                      :aria-label="`Chọn ${formatChapterNumberDisplay(chap.chapter_number)}`"
+                      class="chapter-row-checkbox"
+                      @change="toggleChapterSelection(chap.id)"
+                    />
+                    <span
+                      v-else-if="chap.status === 'draft' || chap.status === 'rejected'"
+                      class="checkbox-disabled-placeholder"
+                      title="Chương chưa có ảnh, cần tải lên ít nhất 1 ảnh để gửi duyệt"
+                      aria-hidden="true"
+                    >
+                      ⚠️
+                    </span>
+                    <span v-else class="checkbox-disabled-placeholder" aria-hidden="true">—</span>
+                  </td>
+
                   <!-- Chapter Number -->
                   <td class="td-number">
                     <div class="number-and-vip-row">
@@ -1250,37 +1462,63 @@ watch(
                     }}). Vui lòng đóng cửa sổ.
                   </div>
 
-                  <!-- Field 1: Chapter Number -->
+                  <!-- Field 1: Chapter Number (Auto-assigned integer or gap selection) -->
                   <div class="form-group" :class="{ 'has-error': !!formErrors.chapter_number }">
                     <div class="label-row">
-                      <label for="input-chapter-number" class="field-label">
+                      <label class="field-label">
                         Số thứ tự chương <span class="required-mark">*</span>
                       </label>
-                      <span class="field-hint">Số nguyên hoặc số thập phân</span>
+                      <span v-if="formModalMode === 'create'" class="field-hint">Số nguyên tự động tăng dần</span>
+                      <span v-else class="field-hint">Cố định để bảo toàn tiến trình đọc</span>
                     </div>
 
-                    <input
-                      id="input-chapter-number"
-                      v-model="formValues.chapter_number"
-                      type="text"
-                      class="field-input"
-                      placeholder="Ví dụ: 1 hoặc 1.5 hoặc 2.25"
-                      :disabled="
-                        isSubmittingForm ||
-                        (formModalMode === 'edit' &&
-                          editingChapter !== null &&
-                          editingChapter.status !== 'draft' &&
-                          editingChapter.status !== 'rejected')
-                      "
-                      autocomplete="off"
-                      @input="formErrors.chapter_number = null"
-                    />
+                    <!-- CREATE MODE: Auto-number display or gap selection -->
+                    <template v-if="formModalMode === 'create'">
+                      <div v-if="isLoadingNextNumber" class="chapter-number-loading">
+                        <span class="btn-spinner">⌛</span>
+                        <span>Đang tính toán số chương tiếp theo...</span>
+                      </div>
 
-                    <!-- Help text -->
-                    <p class="field-subtext">
-                      Hỗ trợ số nguyên (1, 2, 3...) hoặc số thập phân tối đa hai chữ số (1.5, 2.1...
-                      cho chương ngoại truyện, phụ bản).
-                    </p>
+                      <div v-else-if="nextNumberData" class="chapter-number-selector">
+                        <!-- Dropdown if there are gaps -->
+                        <div v-if="nextNumberData.missing_chapter_numbers.length > 0" class="gap-selector-wrap">
+                          <select
+                            id="select-chapter-number"
+                            v-model="selectedChapterChoice"
+                            class="field-input field-select"
+                            :disabled="isSubmittingForm"
+                          >
+                            <option value="next">
+                              Chương tiếp theo: Chương {{ nextNumberData.next_chapter_number }} (Mặc định)
+                            </option>
+                            <option
+                              v-for="gap in nextNumberData.missing_chapter_numbers"
+                              :key="'gap-' + gap"
+                              :value="gap"
+                            >
+                              Chương {{ gap }} (đang trống)
+                            </option>
+                          </select>
+                          <p class="field-subtext field-gap-alert">
+                            ℹ️ Hệ thống phát hiện có số chương bị thiếu trong danh sách. Bạn có thể chọn số chương còn trống hoặc đăng chương tiếp theo bình thường.
+                          </p>
+                        </div>
+
+                        <!-- Static badge if no gaps -->
+                        <div v-else class="auto-number-box">
+                          <span class="auto-number-badge">Chương {{ nextNumberData.next_chapter_number }}</span>
+                          <span class="auto-number-desc">Chương mới sẽ tự động được gán số nguyên tiếp theo tăng dần.</span>
+                        </div>
+                      </div>
+                    </template>
+
+                    <!-- EDIT MODE: Static display -->
+                    <template v-else>
+                      <div class="auto-number-box read-only">
+                        <span class="auto-number-badge">Chương {{ formatChapterNumberDisplay(editingChapter?.chapter_number || '') }}</span>
+                        <span class="auto-number-desc">Số thứ tự chương được bảo toàn cố định theo quy tắc đọc truyện.</span>
+                      </div>
+                    </template>
 
                     <!-- Error text -->
                     <p
@@ -1407,6 +1645,127 @@ watch(
         @close="rejectionModalOpen = false"
         @edit="handleRejectionModalEdit"
       />
+
+      <!-- ======================================================= -->
+      <!-- MODAL: Gửi duyệt chương hàng loạt (SubmitReviewModal)   -->
+      <!-- ======================================================= -->
+      <Teleport to="body">
+        <Transition name="modal-fade">
+          <div
+            v-if="isBulkSubmitModalOpen"
+            class="modal-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bulk-submit-modal-title"
+            @click.self="closeBulkSubmitModal"
+          >
+            <div class="submit-review-modal">
+              <div class="modal-header">
+                <div>
+                  <h3 id="bulk-submit-modal-title" class="modal-title">Gửi duyệt chương hàng loạt: {{ comic?.title }}</h3>
+                  <p class="modal-subtitle">
+                    Chọn các chương ở trạng thái Bản nháp hoặc Bị từ chối có ít nhất 1 ảnh để gửi Quản trị viên kiểm duyệt.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  class="btn-close-modal"
+                  :disabled="isBulkSubmitting"
+                  aria-label="Đóng modal"
+                  @click="closeBulkSubmitModal"
+                >✕</button>
+              </div>
+
+              <div v-if="bulkSubmitError" class="modal-alert-error" role="alert">
+                ⚠️ {{ bulkSubmitError }}
+              </div>
+
+              <div class="modal-body-scroll">
+                <div v-if="isLoadingBulkChapters" class="chapters-loading-box">
+                  <span class="spinner-icon">⏳</span> Đang tải danh sách chương đủ điều kiện...
+                </div>
+
+                <div v-else-if="bulkReviewableChapters.length === 0" class="empty-chapters-note">
+                  <span class="note-icon">ℹ️</span>
+                  <div>
+                    <strong>Không có chương nào ở trạng thái Bản nháp hoặc Bị từ chối.</strong>
+                    <p>Tất cả các chương của bộ truyện đã được gửi duyệt hoặc xuất bản.</p>
+                  </div>
+                </div>
+
+                <div v-else class="chapters-selection-box">
+                  <div class="chapters-selection-toolbar">
+                    <div class="selection-counts">
+                      Đã chọn: <span class="badge-count">{{ selectedChapterIds.length }}</span> / {{ eligibleBulkChapters.length }} chương đủ điều kiện
+                    </div>
+                    <div class="selection-actions">
+                      <button type="button" class="btn-tool" :disabled="isBulkSubmitting" @click="selectAllBulkChapters">
+                        Chọn tất cả
+                      </button>
+                      <button type="button" class="btn-tool" :disabled="isBulkSubmitting" @click="deselectAllBulkChapters">
+                        Bỏ chọn tất cả
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="chapters-checklist">
+                    <label
+                      v-for="chap in bulkReviewableChapters"
+                      :key="chap.id"
+                      class="chapter-check-item"
+                      :class="{
+                        'is-selected': selectedChapterIds.includes(chap.id),
+                        'is-disabled': (chap.images_count || 0) === 0
+                      }"
+                    >
+                      <input
+                        type="checkbox"
+                        :checked="selectedChapterIds.includes(chap.id)"
+                        :disabled="isBulkSubmitting || (chap.images_count || 0) === 0"
+                        @change="toggleChapterSelection(chap.id)"
+                      />
+                      <div class="chapter-info">
+                        <span class="chap-num">{{ formatChapterNumberDisplay(chap.chapter_number) }}</span>
+                        <span class="chap-title">{{ chap.title || '(Chưa đặt tiêu đề)' }}</span>
+                      </div>
+                      <div class="chapter-meta">
+                        <span class="badge-status" :class="chap.status">
+                          {{ chap.status === 'draft' ? 'Bản nháp' : 'Bị từ chối' }}
+                        </span>
+                        <span class="badge-images" :class="{ 'zero-images': (chap.images_count || 0) === 0 }">
+                          {{ chap.images_count || 0 }} ảnh
+                        </span>
+                        <span v-if="(chap.images_count || 0) === 0" class="no-images-warning">
+                          (Thiếu ảnh)
+                        </span>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="modal-footer">
+                <button
+                  type="button"
+                  class="btn-modal-cancel"
+                  :disabled="isBulkSubmitting"
+                  @click="closeBulkSubmitModal"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="button"
+                  class="btn-modal-confirm"
+                  :disabled="isBulkSubmitting || selectedChapterIds.length === 0"
+                  @click="handleConfirmBulkSubmit"
+                >
+                  {{ isBulkSubmitting ? 'Đang gửi duyệt...' : (selectedChapterIds.length > 0 ? `Gửi duyệt ${selectedChapterIds.length} chương đã chọn` : 'Chọn ít nhất 1 chương') }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </Transition>
+      </Teleport>
     </div>
   </CreatorLayout>
 </template>
@@ -2595,5 +2954,436 @@ watch(
   .pagination-buttons {
     justify-content: center;
   }
+}
+
+/* Chapter Numbering UI (CAI-HOME-03) */
+.chapter-number-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background-color: var(--color-bg-surface-raised, #161b22);
+  border: 1px solid var(--color-border, #30363d);
+  border-radius: var(--radius-md, 8px);
+  color: var(--color-text-secondary, #8b949e);
+  font-size: var(--font-size-sm, 14px);
+}
+
+.auto-number-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.08) 0%, rgba(14, 165, 233, 0.03) 100%);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: var(--radius-md, 8px);
+}
+
+.auto-number-box.read-only {
+  background: var(--color-bg-surface-raised, #161b22);
+  border-color: var(--color-border, #30363d);
+}
+
+.auto-number-badge {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-primary, #38bdf8);
+}
+
+.auto-number-desc {
+  font-size: 12px;
+  color: var(--color-text-muted, #8b949e);
+  line-height: 1.4;
+}
+
+.gap-selector-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field-gap-alert {
+  color: #38bdf8 !important;
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 0;
+}
+
+/* ======================================================= */
+/* Bulk Chapter Submit & Checkboxes (CAI-CHAPTER-BULK)    */
+/* ======================================================= */
+
+.comic-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.btn-bulk-submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  background-color: var(--color-bg-elevated, #161b22);
+  border: 1px solid var(--color-border, #30363d);
+  color: var(--color-text-primary, #f0f6fc);
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s);
+}
+
+.btn-bulk-submit:hover:not(:disabled) {
+  border-color: var(--color-primary, #38bdf8);
+  background-color: rgba(56, 189, 248, 0.1);
+  color: var(--color-primary, #38bdf8);
+}
+
+.btn-bulk-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-count-pill {
+  background-color: var(--color-primary, #38bdf8);
+  color: #0b1120;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  line-height: 1.2;
+}
+
+/* Table selection checkboxes */
+.th-select,
+.td-select {
+  width: 44px;
+  text-align: center;
+  padding-left: 12px;
+  padding-right: 8px;
+}
+
+.chapter-row-checkbox {
+  width: 17px;
+  height: 17px;
+  cursor: pointer;
+  accent-color: var(--color-primary, #38bdf8);
+  vertical-align: middle;
+}
+
+.checkbox-disabled-placeholder {
+  color: var(--color-text-muted, #64748b);
+  font-size: 12px;
+  display: inline-block;
+}
+
+.chapter-row.is-row-selected {
+  background-color: rgba(56, 189, 248, 0.08) !important;
+}
+
+.chapter-row.is-row-selected td {
+  border-bottom-color: rgba(56, 189, 248, 0.25);
+}
+
+/* Bulk Submit Review Modal */
+.submit-review-modal {
+  background-color: var(--color-bg-surface, #1e293b);
+  border: 1px solid var(--color-border, #334155);
+  border-radius: var(--radius-xl, 16px);
+  width: 100%;
+  max-width: 620px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.submit-review-modal .modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: var(--spacing-lg, 20px);
+  border-bottom: 1px solid var(--color-border, #334155);
+  gap: var(--spacing-md, 16px);
+}
+
+.submit-review-modal .modal-title {
+  font-size: var(--font-size-lg, 1.125rem);
+  font-weight: var(--font-weight-bold, 700);
+  color: var(--color-text-primary, #f8fafc);
+  margin: 0;
+}
+
+.submit-review-modal .modal-subtitle {
+  font-size: var(--font-size-xs, 0.8125rem);
+  color: var(--color-text-muted, #94a3b8);
+  margin: 4px 0 0 0;
+  line-height: 1.4;
+}
+
+.submit-review-modal .btn-close-modal {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted, #94a3b8);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm, 6px);
+  transition: all var(--transition-fast, 0.15s);
+}
+
+.submit-review-modal .btn-close-modal:hover:not(:disabled) {
+  background-color: var(--color-bg-elevated, #334155);
+  color: #fff;
+}
+
+.submit-review-modal .modal-alert-error {
+  margin: 12px 20px 0;
+  padding: 10px 14px;
+  background-color: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: var(--radius-md, 8px);
+  color: #fca5a5;
+  font-size: var(--font-size-sm, 0.875rem);
+}
+
+.submit-review-modal .modal-body-scroll {
+  padding: 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.submit-review-modal .chapters-loading-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 0;
+  color: var(--color-text-muted, #94a3b8);
+  font-size: var(--font-size-sm, 0.875rem);
+}
+
+.submit-review-modal .empty-chapters-note {
+  display: flex;
+  gap: 12px;
+  background-color: var(--color-bg-elevated, #0f172a);
+  border: 1px solid var(--color-border, #334155);
+  border-radius: var(--radius-md, 8px);
+  padding: 14px 16px;
+  font-size: var(--font-size-sm, 0.875rem);
+  color: var(--color-text-secondary, #cbd5e1);
+  line-height: 1.5;
+}
+
+.submit-review-modal .empty-chapters-note .note-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.submit-review-modal .empty-chapters-note p {
+  margin: 4px 0 0;
+  font-size: var(--font-size-xs, 0.8125rem);
+  color: var(--color-text-muted, #94a3b8);
+}
+
+.submit-review-modal .chapters-selection-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  gap: 12px;
+}
+
+.submit-review-modal .selection-counts {
+  font-size: var(--font-size-sm, 0.875rem);
+  color: var(--color-text-secondary, #cbd5e1);
+}
+
+.submit-review-modal .badge-count {
+  font-weight: 700;
+  color: var(--color-primary, #38bdf8);
+}
+
+.submit-review-modal .selection-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.submit-review-modal .btn-tool {
+  background: var(--color-bg-elevated, #0f172a);
+  border: 1px solid var(--color-border, #334155);
+  color: var(--color-text-secondary, #cbd5e1);
+  font-size: var(--font-size-xs, 0.8125rem);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s);
+}
+
+.submit-review-modal .btn-tool:hover:not(:disabled) {
+  border-color: var(--color-primary, #38bdf8);
+  color: #fff;
+}
+
+.submit-review-modal .chapters-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.submit-review-modal .chapter-check-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background-color: var(--color-bg-elevated, #0f172a);
+  border: 1px solid var(--color-border, #334155);
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s);
+  user-select: none;
+}
+
+.submit-review-modal .chapter-check-item:hover:not(.is-disabled) {
+  border-color: rgba(56, 189, 248, 0.4);
+  background-color: rgba(56, 189, 248, 0.04);
+}
+
+.submit-review-modal .chapter-check-item.is-selected {
+  border-color: var(--color-primary, #38bdf8);
+  background-color: rgba(56, 189, 248, 0.08);
+}
+
+.submit-review-modal .chapter-check-item.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.submit-review-modal .chapter-info {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.submit-review-modal .chap-num {
+  font-weight: 700;
+  color: var(--color-primary, #38bdf8);
+  font-size: var(--font-size-sm, 0.875rem);
+  white-space: nowrap;
+}
+
+.submit-review-modal .chap-title {
+  color: var(--color-text-primary, #f8fafc);
+  font-size: var(--font-size-sm, 0.875rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.submit-review-modal .chapter-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.submit-review-modal .badge-status {
+  font-size: var(--font-size-xs, 0.75rem);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  text-transform: capitalize;
+}
+
+.submit-review-modal .badge-status.draft {
+  background-color: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.submit-review-modal .badge-status.rejected {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.submit-review-modal .badge-images {
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--color-text-muted, #94a3b8);
+  background: var(--color-bg-surface, #1e293b);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--color-border, #334155);
+}
+
+.submit-review-modal .badge-images.zero-images {
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.submit-review-modal .no-images-warning {
+  color: #f87171;
+  font-size: var(--font-size-xs, 0.75rem);
+  font-style: italic;
+}
+
+.submit-review-modal .modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--color-border, #334155);
+  background-color: var(--color-bg-surface, #1e293b);
+}
+
+.submit-review-modal .btn-modal-cancel {
+  background: transparent;
+  border: 1px solid var(--color-border, #334155);
+  color: var(--color-text-secondary, #cbd5e1);
+  padding: 8px 16px;
+  border-radius: var(--radius-md, 8px);
+  font-size: var(--font-size-sm, 0.875rem);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s);
+}
+
+.submit-review-modal .btn-modal-cancel:hover:not(:disabled) {
+  border-color: var(--color-text-muted, #94a3b8);
+  color: #fff;
+}
+
+.submit-review-modal .btn-modal-confirm {
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  border: 1px solid #38bdf8;
+  color: #fff;
+  padding: 8px 20px;
+  border-radius: var(--radius-md, 8px);
+  font-size: var(--font-size-sm, 0.875rem);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.submit-review-modal .btn-modal-confirm:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0369a1 0%, #075985 100%);
+  box-shadow: 0 4px 12px rgba(56, 189, 248, 0.25);
+}
+
+.submit-review-modal .btn-modal-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

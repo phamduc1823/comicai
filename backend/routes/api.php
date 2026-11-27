@@ -182,8 +182,10 @@ Route::middleware(['auth:sanctum', 'active', 'role:creator'])->prefix('creator')
     Route::delete('/comics/{id}', [CreatorComicController::class, 'destroy']);
 
     // Chapters
+    Route::get('/comics/{comicId}/chapters/next-number', [CreatorChapterController::class, 'nextChapterNumber']);
     Route::get('/comics/{comicId}/chapters', [CreatorChapterController::class, 'indexForComic']);
     Route::post('/comics/{comicId}/chapters', [CreatorChapterController::class, 'store']);
+    Route::post('/comics/{comicId}/chapters/bulk-submit-review', [CreatorChapterController::class, 'bulkSubmitReview']);
     Route::get('/chapters/{id}', [CreatorChapterController::class, 'show']);
     Route::match(['put', 'patch'], '/chapters/{id}', [CreatorChapterController::class, 'update']);
     Route::post('/chapters/{id}/submit-review', [CreatorChapterController::class, 'submitReview']);

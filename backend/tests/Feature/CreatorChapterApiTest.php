@@ -177,12 +177,11 @@ class CreatorChapterApiTest extends TestCase
     }
 
     /**
-     * 5. Creator can create a new chapter in draft state with decimal chapter number.
+     * 5. Creator can create a new chapter in draft state with auto integer numbering.
      */
     public function test_creator_can_create_chapter_in_draft_state(): void
     {
         $payload = [
-            'chapter_number' => 1.5,
             'title' => 'Khởi Đầu Gian Nan',
             // Malicious fields attempting state bypass or spoofing:
             'status' => 'published',
@@ -197,7 +196,7 @@ class CreatorChapterApiTest extends TestCase
             'status' => 'success',
             'message' => 'Tạo chương mới thành công.',
             'data' => [
-                'chapter_number' => '1.50',
+                'chapter_number' => '1',
                 'title' => 'Khởi Đầu Gian Nan',
                 'status' => 'draft', // Strictly forced to draft
                 'views_count' => 0,  // Protected
@@ -207,11 +206,82 @@ class CreatorChapterApiTest extends TestCase
         $chapterId = $response->json('data.id');
         $chapter = Chapter::findOrFail($chapterId);
 
-        $this->assertSame('1.50', (string) $chapter->chapter_number);
+        $this->assertEquals(1, (int) $chapter->chapter_number);
         $this->assertSame('draft', $chapter->status);
         $this->assertSame(0, $chapter->views_count);
         $this->assertNull($chapter->rejection_reason);
-        $this->assertTrue(str_starts_with($chapter->slug, 'chuong-1.5-'));
+        $this->assertTrue(str_starts_with($chapter->slug, 'chuong-1'));
+    }
+
+    /**
+     * 5b. Decimal chapter number is strictly rejected.
+     */
+    public function test_decimal_chapter_number_is_rejected(): void
+    {
+        $payload = [
+            'chapter_number' => 1.5,
+            'title' => 'Ngoại truyện',
+        ];
+
+        $response = $this->actingAs($this->creatorA)->postJson("/api/creator/comics/{$this->comicA->id}/chapters", $payload);
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors(['chapter_number']);
+    }
+
+    /**
+     * 5c. Next chapter number API accurately detects next number and missing gaps.
+     */
+    public function test_next_chapter_number_api_and_gap_filling(): void
+    {
+        // Create chapters 1, 2, 3, 5 (chapter 4 was deleted)
+        Chapter::create([
+            'comic_id' => $this->comicA->id,
+            'chapter_number' => 1,
+            'title' => 'Chương 1',
+            'slug' => 'chuong-1',
+            'status' => 'draft',
+        ]);
+        Chapter::create([
+            'comic_id' => $this->comicA->id,
+            'chapter_number' => 2,
+            'title' => 'Chương 2',
+            'slug' => 'chuong-2',
+            'status' => 'draft',
+        ]);
+        Chapter::create([
+            'comic_id' => $this->comicA->id,
+            'chapter_number' => 3,
+            'title' => 'Chương 3',
+            'slug' => 'chuong-3',
+            'status' => 'draft',
+        ]);
+        Chapter::create([
+            'comic_id' => $this->comicA->id,
+            'chapter_number' => 5,
+            'title' => 'Chương 5',
+            'slug' => 'chuong-5',
+            'status' => 'draft',
+        ]);
+
+        // Check next-number endpoint
+        $nextRes = $this->actingAs($this->creatorA)->getJson("/api/creator/comics/{$this->comicA->id}/chapters/next-number");
+        $nextRes->assertStatus(200);
+        $nextRes->assertJsonPath('data.next_chapter_number', 6);
+        $nextRes->assertJsonPath('data.missing_chapter_numbers', [4]);
+
+        // Filling the gap (choosing chapter 4)
+        $fillRes = $this->actingAs($this->creatorA)->postJson("/api/creator/comics/{$this->comicA->id}/chapters", [
+            'chapter_number' => 4,
+            'title' => 'Chương 4 bù vào chỗ thiếu',
+        ]);
+        $fillRes->assertStatus(201);
+        $fillRes->assertJsonPath('data.chapter_number', '4');
+
+        // Check next number again, missing_chapter_numbers should now be empty and next is 6
+        $nextRes2 = $this->actingAs($this->creatorA)->getJson("/api/creator/comics/{$this->comicA->id}/chapters/next-number");
+        $nextRes2->assertStatus(200);
+        $nextRes2->assertJsonPath('data.next_chapter_number', 6);
+        $nextRes2->assertJsonPath('data.missing_chapter_numbers', []);
     }
 
     /**
@@ -597,5 +667,85 @@ class CreatorChapterApiTest extends TestCase
         ]);
 
         $this->assertSame('Chương Đã Xuất Bản', $chapter->fresh()->title);
+    }
+
+    /**
+     * 16. Creator can bulk submit chapters for review.
+     */
+    public function test_creator_can_bulk_submit_chapters_for_review(): void
+    {
+        $chap1 = Chapter::create([
+            'comic_id' => $this->comicA->id,
+            'chapter_number' => 2,
+            'title' => 'Chương 2 Nháp',
+            'slug' => 'chuong-2-nhap',
+            'status' => 'draft',
+        ]);
+        ChapterImage::create([
+            'chapter_id' => $chap1->id,
+            'page_number' => 1,
+            'image_path' => 'chapters/1/1.webp',
+        ]);
+
+        $chap2 = Chapter::create([
+            'comic_id' => $this->comicA->id,
+            'chapter_number' => 3,
+            'title' => 'Chương 3 Bị Từ Chối',
+            'slug' => 'chuong-3-tu-choi',
+            'status' => 'rejected',
+            'rejection_reason' => 'Ảnh mờ',
+        ]);
+        ChapterImage::create([
+            'chapter_id' => $chap2->id,
+            'page_number' => 1,
+            'image_path' => 'chapters/2/1.webp',
+        ]);
+
+        $response = $this->actingAs($this->creatorA)->postJson("/api/creator/comics/{$this->comicA->id}/chapters/bulk-submit-review", [
+            'chapter_ids' => [$chap1->id, $chap2->id],
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'status' => 'success',
+            'data' => [
+                'submitted_count' => 2,
+                'chapter_ids' => [$chap1->id, $chap2->id],
+            ],
+        ]);
+
+        $this->assertSame('pending', $chap1->fresh()->status);
+        $this->assertSame('pending', $chap2->fresh()->status);
+        $this->assertNull($chap2->fresh()->rejection_reason);
+    }
+
+    /**
+     * 17. Bulk submit review validation errors (empty array, 0 images, wrong comic, already published).
+     */
+    public function test_bulk_submit_review_validations(): void
+    {
+        $chapEmptyImages = Chapter::create([
+            'comic_id' => $this->comicA->id,
+            'chapter_number' => 4,
+            'title' => 'Chương Không Ảnh',
+            'slug' => 'chuong-4-khong-anh',
+            'status' => 'draft',
+        ]);
+
+        // Empty array
+        $this->actingAs($this->creatorA)
+            ->postJson("/api/creator/comics/{$this->comicA->id}/chapters/bulk-submit-review", ['chapter_ids' => []])
+            ->assertStatus(422);
+
+        // Chapter with 0 images
+        $this->actingAs($this->creatorA)
+            ->postJson("/api/creator/comics/{$this->comicA->id}/chapters/bulk-submit-review", ['chapter_ids' => [$chapEmptyImages->id]])
+            ->assertStatus(422)
+            ->assertJsonFragment(['status' => 'error']);
+
+        // Chapter of another creator / unauthorized
+        $this->actingAs($this->creatorB)
+            ->postJson("/api/creator/comics/{$this->comicA->id}/chapters/bulk-submit-review", ['chapter_ids' => [$chapEmptyImages->id]])
+            ->assertStatus(403);
     }
 }

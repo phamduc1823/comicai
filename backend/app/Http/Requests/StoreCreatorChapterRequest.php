@@ -25,34 +25,19 @@ class StoreCreatorChapterRequest extends FormRequest
     }
 
     /**
-     * Prepare the data for validation.
-     */
-    protected function prepareForValidation(): void
-    {
-        if ($this->has('chapter_number') && is_numeric($this->input('chapter_number'))) {
-            $this->merge([
-                'chapter_number' => sprintf('%.2f', (float) $this->input('chapter_number')),
-            ]);
-        }
-    }
-
-    /**
      * Get the validation rules that apply to the request.
      *
      * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
      */
     public function rules(): array
     {
-        $comicId = $this->route('comicId') ?? $this->route('comic');
-
         return [
             'chapter_number' => [
-                'required',
-                'numeric',
-                'min:0',
-                'max:9999.99',
-                'regex:/^[0-9]{1,4}(\.[0-9]{1,2})?$/',
-                Rule::unique('chapters', 'chapter_number')->where('comic_id', $comicId),
+                'sometimes',
+                'nullable',
+                'integer',
+                'min:1',
+                'max:999999',
             ],
             'title' => ['nullable', 'string', 'max:150'],
             'is_vip' => ['sometimes', 'boolean'],
@@ -81,6 +66,8 @@ class StoreCreatorChapterRequest extends FormRequest
     public function messages(): array
     {
         return [
+            'chapter_number.integer' => 'Số thứ tự chương phải là số nguyên dương (không sử dụng số thập phân).',
+            'chapter_number.min' => 'Số thứ tự chương phải lớn hơn hoặc bằng 1.',
             'chapter_number.unique' => 'Số chương này đã tồn tại trong bộ truyện.',
         ];
     }

@@ -48,14 +48,15 @@ class ChapterController extends Controller
      */
     public function show(Request $request, string $slug, string $chapterNumber): JsonResponse|ChapterReaderResource
     {
-        // Validate chapter number against DECIMAL(6,2) range and format
-        if (! preg_match('/^[0-9]{1,4}(\.[0-9]{1,2})?$/', $chapterNumber)) {
+        // Validate chapter number format (accepts positive integer or legacy decimal during transition)
+        if (! preg_match('/^[0-9]{1,6}(\.[0-9]{1,2})?$/', $chapterNumber)) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Chương không tồn tại hoặc chưa được phát hành.',
             ], 404);
         }
 
+        $intNumber = (int) (float) $chapterNumber;
         $canonicalNumber = sprintf('%.2f', (float) $chapterNumber);
 
         $comic = Comic::query()
@@ -74,7 +75,10 @@ class ChapterController extends Controller
         $chapter = Chapter::query()
             ->where('comic_id', $comic->id)
             ->where('status', 'published')
-            ->where('chapter_number', $canonicalNumber)
+            ->where(function ($q) use ($intNumber, $canonicalNumber) {
+                $q->where('chapter_number', $intNumber)
+                  ->orWhere('chapter_number', $canonicalNumber);
+            })
             ->with([
                 'images' => function ($q) {
                     $q->orderBy('page_number', 'asc')->orderBy('id', 'asc');
@@ -96,7 +100,7 @@ class ChapterController extends Controller
         $prevChapter = Chapter::query()
             ->where('comic_id', $comic->id)
             ->where('status', 'published')
-            ->where('chapter_number', '<', $canonicalNumber)
+            ->where('chapter_number', '<', $intNumber)
             ->orderBy('chapter_number', 'desc')
             ->orderBy('id', 'desc')
             ->first(['id', 'chapter_number', 'title', 'slug']);
@@ -104,7 +108,7 @@ class ChapterController extends Controller
         $nextChapter = Chapter::query()
             ->where('comic_id', $comic->id)
             ->where('status', 'published')
-            ->where('chapter_number', '>', $canonicalNumber)
+            ->where('chapter_number', '>', $intNumber)
             ->orderBy('chapter_number', 'asc')
             ->orderBy('id', 'asc')
             ->first(['id', 'chapter_number', 'title', 'slug']);
@@ -112,13 +116,13 @@ class ChapterController extends Controller
         $navigation = [
             'prev_chapter' => $prevChapter ? [
                 'id' => $prevChapter->id,
-                'chapter_number' => (string) $prevChapter->chapter_number,
+                'chapter_number' => (string) (int) (float) $prevChapter->chapter_number,
                 'title' => $prevChapter->title,
                 'slug' => $prevChapter->slug,
             ] : null,
             'next_chapter' => $nextChapter ? [
                 'id' => $nextChapter->id,
-                'chapter_number' => (string) $nextChapter->chapter_number,
+                'chapter_number' => (string) (int) (float) $nextChapter->chapter_number,
                 'title' => $nextChapter->title,
                 'slug' => $nextChapter->slug,
             ] : null,

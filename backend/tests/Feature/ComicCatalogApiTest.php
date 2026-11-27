@@ -370,7 +370,7 @@ class ComicCatalogApiTest extends TestCase
         $this->assertCount(1, $data['tags']);
         $this->assertSame('kiem-thuat', $data['tags'][0]['slug']);
         $this->assertCount(1, $data['chapters']);
-        $this->assertSame('1.00', $data['chapters'][0]['chapter_number']);
+        $this->assertEquals(1, (int) $data['chapters'][0]['chapter_number']);
         $this->assertStringContainsString('/storage/placeholders/comics/demo-cover.webp', $data['cover_url']);
         $this->assertStringContainsString('/storage/placeholders/comics/demo-banner.webp', $data['banner_url']);
     }
@@ -440,7 +440,7 @@ class ComicCatalogApiTest extends TestCase
         $chapters = $response->json('data.chapters');
 
         $this->assertCount(1, $chapters);
-        $this->assertSame('1.00', $chapters[0]['chapter_number']);
+        $this->assertEquals(1, (int) $chapters[0]['chapter_number']);
         $this->assertSame('Chương Đã Xuất Bản', $chapters[0]['title']);
     }
 

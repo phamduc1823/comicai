@@ -90,9 +90,9 @@ class ChapterApiTest extends TestCase
     {
         $comic = $this->createComic(['slug' => 'comic-ordered']);
 
-        $this->createChapter($comic, ['chapter_number' => '3.00', 'title' => 'Chương 3', 'slug' => 'c3']);
-        $this->createChapter($comic, ['chapter_number' => '1.00', 'title' => 'Chương 1', 'slug' => 'c1']);
-        $this->createChapter($comic, ['chapter_number' => '2.50', 'title' => 'Chương 2.5', 'slug' => 'c2-5']);
+        $this->createChapter($comic, ['chapter_number' => 3, 'title' => 'Chương 3', 'slug' => 'c3']);
+        $this->createChapter($comic, ['chapter_number' => 1, 'title' => 'Chương 1', 'slug' => 'c1']);
+        $this->createChapter($comic, ['chapter_number' => 2, 'title' => 'Chương 2', 'slug' => 'c2']);
 
         $response = $this->getJson('/api/comics/comic-ordered/chapters');
 
@@ -100,7 +100,7 @@ class ChapterApiTest extends TestCase
         $response->assertJsonCount(3, 'data');
 
         $chapterNumbers = array_column($response->json('data'), 'chapter_number');
-        $this->assertSame(['1.00', '2.50', '3.00'], $chapterNumbers);
+        $this->assertSame(['1', '2', '3'], $chapterNumbers);
     }
 
     /**
@@ -110,15 +110,15 @@ class ChapterApiTest extends TestCase
     {
         $comic = $this->createComic(['slug' => 'comic-filtered']);
 
-        $this->createChapter($comic, ['chapter_number' => '1.00', 'status' => 'published', 'title' => 'Chương Published']);
-        $this->createChapter($comic, ['chapter_number' => '2.00', 'status' => 'draft', 'title' => 'Chương Draft']);
-        $this->createChapter($comic, ['chapter_number' => '3.00', 'status' => 'rejected', 'title' => 'Chương Rejected']);
+        $this->createChapter($comic, ['chapter_number' => 1, 'status' => 'published', 'title' => 'Chương Published']);
+        $this->createChapter($comic, ['chapter_number' => 2, 'status' => 'draft', 'title' => 'Chương Draft']);
+        $this->createChapter($comic, ['chapter_number' => 3, 'status' => 'rejected', 'title' => 'Chương Rejected']);
 
         $response = $this->getJson('/api/comics/comic-filtered/chapters');
 
         $response->assertOk();
         $response->assertJsonCount(1, 'data');
-        $this->assertSame('1.00', $response->json('data.0.chapter_number'));
+        $this->assertSame('1', $response->json('data.0.chapter_number'));
         $this->assertSame('Chương Published', $response->json('data.0.title'));
     }
 
@@ -193,7 +193,7 @@ class ChapterApiTest extends TestCase
         $data = $response->json('data');
 
         $this->assertSame($ch1->id, $data['id']);
-        $this->assertSame('1.00', $data['chapter_number']);
+        $this->assertSame('1', $data['chapter_number']);
         $this->assertSame('Chương 1: Khởi đầu', $data['title']);
         $this->assertSame('chuong-1', $data['slug']);
         $this->assertSame(1501, $data['views_count']);
@@ -213,59 +213,42 @@ class ChapterApiTest extends TestCase
         // Navigation: prev is null, next is chapter 2
         $this->assertNull($data['prev_chapter']);
         $this->assertNotNull($data['next_chapter']);
-        $this->assertSame('2.00', $data['next_chapter']['chapter_number']);
+        $this->assertSame('2', $data['next_chapter']['chapter_number']);
         $this->assertSame('Chương 2: Thử thách', $data['next_chapter']['title']);
         $this->assertSame('chuong-2', $data['next_chapter']['slug']);
     }
 
     /**
-     * 6. Test chapterNumber parameter correctly handles 1, 1.0, 1.00, 1.5, 1.50, 10, 10.25.
+     * 6. Test chapterNumber parameter correctly handles 1, 1.0, 1.00, 10.
      */
     public function test_chapter_show_handles_various_chapter_number_representations(): void
     {
         $comic = $this->createComic(['slug' => 'comic-numbers']);
 
-        $ch1 = $this->createChapter($comic, ['chapter_number' => '1.00', 'title' => 'Chương 1']);
-        $ch1_5 = $this->createChapter($comic, ['chapter_number' => '1.50', 'title' => 'Chương 1.5']);
-        $ch10 = $this->createChapter($comic, ['chapter_number' => '10.00', 'title' => 'Chương 10']);
-        $ch10_25 = $this->createChapter($comic, ['chapter_number' => '10.25', 'title' => 'Chương 10.25']);
+        $ch1 = $this->createChapter($comic, ['chapter_number' => 1, 'title' => 'Chương 1']);
+        $ch10 = $this->createChapter($comic, ['chapter_number' => 10, 'title' => 'Chương 10']);
 
-        // Check 1 -> matches 1.00
+        // Check 1 -> matches 1
         $res1 = $this->getJson('/api/comics/comic-numbers/chapters/1');
         $res1->assertOk();
-        $this->assertSame('1.00', $res1->json('data.chapter_number'));
+        $this->assertSame('1', $res1->json('data.chapter_number'));
         $this->assertSame('Chương 1', $res1->json('data.title'));
 
-        // Check 1.0 -> matches 1.00
+        // Check 1.0 -> matches 1
         $res1_0 = $this->getJson('/api/comics/comic-numbers/chapters/1.0');
         $res1_0->assertOk();
-        $this->assertSame('1.00', $res1_0->json('data.chapter_number'));
+        $this->assertSame('1', $res1_0->json('data.chapter_number'));
 
-        // Check 1.00 -> matches 1.00
+        // Check 1.00 -> matches 1
         $res1_00 = $this->getJson('/api/comics/comic-numbers/chapters/1.00');
         $res1_00->assertOk();
-        $this->assertSame('1.00', $res1_00->json('data.chapter_number'));
+        $this->assertSame('1', $res1_00->json('data.chapter_number'));
 
-        // Check 1.5 -> matches 1.50
-        $res1_5 = $this->getJson('/api/comics/comic-numbers/chapters/1.5');
-        $res1_5->assertOk();
-        $this->assertSame('1.50', $res1_5->json('data.chapter_number'));
-
-        // Check 1.50 -> matches 1.50
-        $res1_50 = $this->getJson('/api/comics/comic-numbers/chapters/1.50');
-        $res1_50->assertOk();
-        $this->assertSame('1.50', $res1_50->json('data.chapter_number'));
-
-        // Check 10 -> matches 10.00 (and NOT chapter 1)
+        // Check 10 -> matches 10
         $res10 = $this->getJson('/api/comics/comic-numbers/chapters/10');
         $res10->assertOk();
-        $this->assertSame('10.00', $res10->json('data.chapter_number'));
+        $this->assertSame('10', $res10->json('data.chapter_number'));
         $this->assertSame('Chương 10', $res10->json('data.title'));
-
-        // Check 10.25 -> matches 10.25
-        $res10_25 = $this->getJson('/api/comics/comic-numbers/chapters/10.25');
-        $res10_25->assertOk();
-        $this->assertSame('10.25', $res10_25->json('data.chapter_number'));
     }
 
     /**
@@ -384,21 +367,21 @@ class ChapterApiTest extends TestCase
     {
         $comic = $this->createComic(['slug' => 'comic-nav']);
 
-        $ch1 = $this->createChapter($comic, ['chapter_number' => '1.00', 'status' => 'published']);
-        $ch2 = $this->createChapter($comic, ['chapter_number' => '2.00', 'status' => 'draft']);
-        $ch3 = $this->createChapter($comic, ['chapter_number' => '3.00', 'status' => 'rejected']);
-        $ch4 = $this->createChapter($comic, ['chapter_number' => '4.00', 'status' => 'published']);
+        $ch1 = $this->createChapter($comic, ['chapter_number' => 1, 'status' => 'published']);
+        $ch2 = $this->createChapter($comic, ['chapter_number' => 2, 'status' => 'draft']);
+        $ch3 = $this->createChapter($comic, ['chapter_number' => 3, 'status' => 'rejected']);
+        $ch4 = $this->createChapter($comic, ['chapter_number' => 4, 'status' => 'published']);
 
         // Viewing chapter 1: next should be chapter 4 (skipping 2 and 3)
-        $res1 = $this->getJson('/api/comics/comic-nav/chapters/1.00');
+        $res1 = $this->getJson('/api/comics/comic-nav/chapters/1');
         $res1->assertOk();
         $this->assertNull($res1->json('data.prev_chapter'));
-        $this->assertSame('4.00', $res1->json('data.next_chapter.chapter_number'));
+        $this->assertSame('4', $res1->json('data.next_chapter.chapter_number'));
 
         // Viewing chapter 4: prev should be chapter 1 (skipping 2 and 3)
-        $res4 = $this->getJson('/api/comics/comic-nav/chapters/4.00');
+        $res4 = $this->getJson('/api/comics/comic-nav/chapters/4');
         $res4->assertOk();
-        $this->assertSame('1.00', $res4->json('data.prev_chapter.chapter_number'));
+        $this->assertSame('1', $res4->json('data.prev_chapter.chapter_number'));
         $this->assertNull($res4->json('data.next_chapter'));
     }
 
@@ -477,18 +460,18 @@ class ChapterApiTest extends TestCase
         $resIndex = $this->getJson('/api/comics/huyen-thoai-kiem-vuong/chapters');
         $resIndex->assertOk();
         $resIndex->assertJsonCount(2, 'data');
-        $this->assertSame('1.00', $resIndex->json('data.0.chapter_number'));
-        $this->assertSame('2.00', $resIndex->json('data.1.chapter_number'));
+        $this->assertEquals(1, (int) $resIndex->json('data.0.chapter_number'));
+        $this->assertEquals(2, (int) $resIndex->json('data.1.chapter_number'));
 
         // Test reader show for chapter 1 (has 4 page images)
         $resShow = $this->getJson('/api/comics/huyen-thoai-kiem-vuong/chapters/1');
         $resShow->assertOk();
-        $this->assertSame('1.00', $resShow->json('data.chapter_number'));
+        $this->assertEquals(1, (int) $resShow->json('data.chapter_number'));
         $this->assertSame('Huyền Thoại Kiếm Vương', $resShow->json('data.comic.title'));
         $this->assertCount(4, $resShow->json('data.images'));
         $this->assertSame(1, $resShow->json('data.images.0.page_number'));
         $this->assertSame(4, $resShow->json('data.images.3.page_number'));
         $this->assertNull($resShow->json('data.prev_chapter'));
-        $this->assertSame('2.00', $resShow->json('data.next_chapter.chapter_number'));
+        $this->assertEquals(2, (int) $resShow->json('data.next_chapter.chapter_number'));
     }
 }
