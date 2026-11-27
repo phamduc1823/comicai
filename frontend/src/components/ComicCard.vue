@@ -36,10 +36,27 @@ const chaptersLabel = computed(() => {
 
 const formattedViews = computed(() => {
   const views = props.comic.views_count
-  if (!views) return null
-  if (views >= 1000000) return (views / 1000000).toFixed(1) + 'M'
-  if (views >= 1000) return (views / 1000).toFixed(1) + 'k'
-  return views.toString()
+  if (views === null || views === undefined) return null
+  const num = Number(views)
+  if (isNaN(num) || num <= 0) return null
+
+  // 1 tỉ (1 billion) -> 1b
+  if (num >= 1_000_000_000) {
+    const val = (num / 1_000_000_000).toFixed(1).replace(/\.0$/, '')
+    return `${val}b`
+  }
+  // 1 triệu (1 million) -> 1m
+  if (num >= 1_000_000) {
+    const val = (num / 1_000_000).toFixed(1).replace(/\.0$/, '')
+    return `${val}m`
+  }
+  // 1 nghìn (1 thousand) -> 1k
+  if (num >= 1_000) {
+    const val = (num / 1_000).toFixed(1).replace(/\.0$/, '')
+    return `${val}k`
+  }
+
+  return num.toString()
 })
 
 /**
@@ -203,12 +220,29 @@ const coverSrc = computed(() => {
           </span>
         </div>
 
-        <!-- Footer Stats: Views -->
-        <div v-if="formattedViews" class="comic-stats">
-          <span class="stat-item" :title="comic.views_count + ' lượt xem'">
-            <span class="stat-icon" aria-hidden="true">👁</span>
-            <span>{{ formattedViews }}</span>
+        <!-- Footer Stats: Views (Always maintains uniform height even if 0 or null) -->
+        <div class="comic-stats">
+          <span
+            v-if="formattedViews"
+            class="stat-item"
+            :title="(comic.views_count || 0) + ' lượt xem'"
+          >
+            <svg
+              class="stat-icon-svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+            <span class="stat-count">{{ formattedViews }}</span>
           </span>
+          <span v-else class="stat-item-empty" aria-hidden="true">&nbsp;</span>
         </div>
       </div>
     </RouterLink>
@@ -463,6 +497,7 @@ const coverSrc = computed(() => {
   flex-direction: column;
   gap: 4px;
   flex: 1;
+  min-height: 120px;
 }
 
 .comic-title {
@@ -474,7 +509,8 @@ const coverSrc = computed(() => {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  min-height: 2.5em;
+  height: 2.6em;
+  min-height: 2.6em;
   transition: color var(--transition-fast);
 }
 
@@ -491,6 +527,8 @@ const coverSrc = computed(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  height: 18px;
+  min-height: 18px;
 }
 
 .author-icon {
@@ -509,6 +547,9 @@ const coverSrc = computed(() => {
   gap: 4px;
   flex-wrap: wrap;
   margin-top: 2px;
+  height: 22px;
+  min-height: 22px;
+  overflow: hidden;
 }
 
 .genre-chip {
@@ -525,18 +566,38 @@ const coverSrc = computed(() => {
   padding-top: 4px;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   font-size: 11px;
   color: var(--color-text-muted);
+  height: 22px;
+  min-height: 22px;
+  box-sizing: border-box;
 }
 
 .stat-item {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+  color: var(--color-text-secondary, #cbd5e1);
+  line-height: 1;
 }
 
-.stat-icon {
-  font-size: 10px;
+.stat-icon-svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  stroke: var(--color-primary, #38bdf8);
+  display: block;
+}
+
+.stat-count {
+  font-weight: var(--font-weight-medium, 500);
+  color: var(--color-text-secondary, #94a3b8);
+}
+
+.stat-item-empty {
+  display: inline-block;
+  height: 14px;
+  visibility: hidden;
 }
 </style>
