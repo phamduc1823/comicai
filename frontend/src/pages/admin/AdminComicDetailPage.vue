@@ -105,9 +105,25 @@ const formApprovalStatus = ref<'draft' | 'pending' | 'approved' | 'rejected'>('a
 const formIsFeatured = ref(false)
 const formComicRejectionReason = ref('')
 const isUpdatingComicStatus = ref(false)
+const isUpdatingFeatured = ref(false)
 const pendingChaptersForDetailStatus = ref<AdminComicChapterItem[]>([])
 const selectedDetailStatusChapterIds = ref<number[]>([])
 const isLoadingPendingDetailChapters = ref(false)
+
+async function handleToggleFeaturedDetail() {
+  if (!comic.value || isUpdatingFeatured.value) return
+  isUpdatingFeatured.value = true
+  const nextVal = !comic.value.is_featured
+  try {
+    const res = await AdminService.updateComicFeatured(comic.value.id, nextVal)
+    comic.value.is_featured = res.data.is_featured
+    showToast(res.message || (comic.value.is_featured ? 'Đã đánh dấu nổi bật!' : 'Đã bỏ nổi bật!'))
+  } catch (err: unknown) {
+    showToast(getErrorMessage(err, 'Không thể cập nhật trạng thái nổi bật.'), 'error')
+  } finally {
+    isUpdatingFeatured.value = false
+  }
+}
 
 // Toast State
 const toastMessage = ref<{ text: string; type: 'success' | 'error' } | null>(null)
@@ -449,6 +465,16 @@ watch(
               </div>
 
               <div class="hero-actions">
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="isUpdatingFeatured"
+                  :title="comic.is_featured ? 'Bỏ đánh dấu nổi bật' : 'Đánh dấu truyện nổi bật'"
+                  @click="handleToggleFeaturedDetail"
+                >
+                  <span v-if="isUpdatingFeatured">⌛ Đang cập nhật...</span>
+                  <span v-else>{{ comic.is_featured ? '⭐ Bỏ nổi bật' : '☆ Đánh dấu nổi bật' }}</span>
+                </button>
                 <button type="button" class="btn btn-secondary btn-sm" @click="openVipModal">
                   💎 Cài đặt VIP
                 </button>

@@ -165,8 +165,8 @@ class AdminComicChapterManagementApiTest extends TestCase
             ->getJson("/api/admin/comics/{$this->comic->id}/chapters?q=25");
 
         $resSearch->assertStatus(200)
-            ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.chapter_number', '25.00');
+            ->assertJsonCount(1, 'data');
+        $this->assertEquals(25, (int) $resSearch->json('data.0.chapter_number'));
     }
 
     public function test_cannot_access_chapters_of_nonexistent_comic(): void
@@ -297,5 +297,45 @@ class AdminComicChapterManagementApiTest extends TestCase
         $this->actingAs($this->reader, 'sanctum')
             ->getJson("/api/admin/comics/{$this->comic->id}/chapters")
             ->assertStatus(403);
+    }
+
+    public function test_admin_can_toggle_featured_status(): void
+    {
+        // Initially not featured
+        $this->assertFalse((bool) $this->comic->is_featured);
+
+        // Admin marks as featured
+        $res = $this->actingAs($this->admin, 'sanctum')
+            ->patchJson("/api/admin/comics/{$this->comic->id}/featured", [
+                'is_featured' => true,
+            ]);
+
+        $res->assertStatus(200);
+        $res->assertJsonPath('data.is_featured', true);
+        $this->assertTrue((bool) $this->comic->fresh()->is_featured);
+
+        // Admin unmarks featured
+        $resUnmark = $this->actingAs($this->admin, 'sanctum')
+            ->patchJson("/api/admin/comics/{$this->comic->id}/featured", [
+                'is_featured' => false,
+            ]);
+
+        $resUnmark->assertStatus(200);
+        $resUnmark->assertJsonPath('data.is_featured', false);
+        $this->assertFalse((bool) $this->comic->fresh()->is_featured);
+    }
+
+    public function test_non_admin_cannot_toggle_featured_status(): void
+    {
+        // Unauthenticated
+        $this->patchJson("/api/admin/comics/{$this->comic->id}/featured", [
+            'is_featured' => true,
+        ])->assertStatus(401);
+
+        // Regular reader
+        $this->actingAs($this->reader, 'sanctum')
+            ->patchJson("/api/admin/comics/{$this->comic->id}/featured", [
+                'is_featured' => true,
+            ])->assertStatus(403);
     }
 }

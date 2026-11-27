@@ -143,6 +143,33 @@ class AdminComicCatalogController extends Controller
     }
 
     /**
+     * Update featured status for a comic.
+     */
+    public function updateFeatured(Request $request, int $id): JsonResponse
+    {
+        $comic = Comic::findOrFail($id);
+
+        $validated = $request->validate([
+            'is_featured' => ['required', 'boolean'],
+        ]);
+
+        $comic->is_featured = (bool) $validated['is_featured'];
+        $comic->save();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => $comic->is_featured
+                ? "Đã đánh dấu truyện '{$comic->title}' là nổi bật."
+                : "Đã bỏ đánh dấu nổi bật cho truyện '{$comic->title}'.",
+            'data' => [
+                'id' => $comic->id,
+                'title' => $comic->title,
+                'is_featured' => $comic->is_featured,
+            ],
+        ]);
+    }
+
+    /**
      * Override VIP status and price for a comic.
      */
     public function updateVip(Request $request, int $id): JsonResponse

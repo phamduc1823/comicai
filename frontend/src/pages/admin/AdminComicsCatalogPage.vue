@@ -28,6 +28,22 @@ const targetComic = ref<AdminComicCatalogItem | null>(null)
 const formIsVip = ref(false)
 const formPrice = ref(0)
 const isUpdatingVip = ref(false)
+const updatingFeaturedId = ref<number | null>(null)
+
+async function handleToggleFeatured(comic: AdminComicCatalogItem) {
+  if (updatingFeaturedId.value !== null) return
+  updatingFeaturedId.value = comic.id
+  const nextVal = !comic.is_featured
+  try {
+    const res = await AdminService.updateComicFeatured(comic.id, nextVal)
+    comic.is_featured = res.data.is_featured
+    showToast(res.message || (comic.is_featured ? 'Đã đánh dấu nổi bật thành công!' : 'Đã bỏ nổi bật thành công!'))
+  } catch (err: unknown) {
+    showToast(getErrorMessage(err, 'Không thể cập nhật trạng thái nổi bật.'), 'error')
+  } finally {
+    updatingFeaturedId.value = null
+  }
+}
 
 // Status / Approval Modal
 const isStatusModalOpen = ref(false)
@@ -314,6 +330,17 @@ onMounted(() => {
                 >
                   📖 Chi tiết
                 </RouterLink>
+                <button
+                  type="button"
+                  class="btn-icon btn-featured-toggle"
+                  :class="{ 'is-featured': c.is_featured, 'is-loading': updatingFeaturedId === c.id }"
+                  :disabled="updatingFeaturedId === c.id"
+                  :title="c.is_featured ? 'Bỏ đánh dấu nổi bật' : 'Đánh dấu truyện nổi bật'"
+                  @click="handleToggleFeatured(c)"
+                >
+                  <span v-if="updatingFeaturedId === c.id" class="btn-spinner">⌛</span>
+                  <span v-else>{{ c.is_featured ? '⭐' : '☆' }}</span>
+                </button>
                 <button
                   type="button"
                   class="btn-icon"
@@ -845,5 +872,20 @@ onMounted(() => {
 
 .text-xs {
   font-size: 11px;
+}
+
+.btn-featured-toggle {
+  font-size: 15px;
+  transition: all 0.2s ease;
+}
+
+.btn-featured-toggle.is-featured {
+  color: #f59e0b;
+  text-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
+}
+
+.btn-featured-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

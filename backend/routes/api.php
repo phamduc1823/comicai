@@ -288,6 +288,7 @@ Route::middleware(['auth:sanctum', 'active', 'role:admin'])->prefix('admin/comic
     Route::get('/', [AdminComicCatalogController::class, 'index']);
     Route::get('/{id}', [AdminComicCatalogController::class, 'show']);
     Route::patch('/{id}/status', [AdminComicCatalogController::class, 'updateStatus']);
+    Route::patch('/{id}/featured', [AdminComicCatalogController::class, 'updateFeatured']);
     Route::patch('/{id}/vip', [AdminComicCatalogController::class, 'updateVip']);
     Route::patch('/{id}/approval-status', [AdminComicCatalogController::class, 'updateApprovalStatus']);
 

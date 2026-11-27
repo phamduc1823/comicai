@@ -476,6 +476,20 @@ export class AdminService {
     return response.data
   }
 
+  static async updateComicFeatured(
+    id: number | string,
+    isFeatured: boolean
+  ): Promise<{ status: string; message: string; data: { id: number; title: string; is_featured: boolean } }> {
+    const response = await httpClient.patch<{
+      status: string
+      message: string
+      data: { id: number; title: string; is_featured: boolean }
+    }>(`/admin/comics/${id}/featured`, {
+      is_featured: isFeatured,
+    })
+    return response.data
+  }
+
   static async updateComicVip(
     id: number | string,
     payload: { is_vip: boolean; price: number }
