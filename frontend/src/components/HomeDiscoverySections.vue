@@ -1,16 +1,35 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import ComicCard from '@/components/ComicCard.vue'
+import ShareRecipientModal from '@/components/chat/ShareRecipientModal.vue'
 import { CatalogService } from '@/services/catalogService'
+import { useAuthStore } from '@/stores/auth'
 import type { ComicListItem } from '@/types/catalog'
 
+const router = useRouter()
+const authStore = useAuthStore()
+
+// Share state
+const sharingComic = ref<ComicListItem | null>(null)
+const isShareModalOpen = ref(false)
+
+function handleShareComic(comic: ComicListItem) {
+  if (!authStore.isAuthenticated) {
+    router.push({
+      path: '/login',
+    })
+    return
+  }
+  sharingComic.value = comic
+  isShareModalOpen.value = true
+}
+
 // Discovery Sections Data
+const weeklyTopComics = ref<ComicListItem[]>([])
+const featuredComics = ref<ComicListItem[]>([])
 const latestUpdatedComics = ref<ComicListItem[]>([])
 const completedComics = ref<ComicListItem[]>([])
-const weeklyTopComics = ref<ComicListItem[]>([])
-const newComics = ref<ComicListItem[]>([])
-const featuredComics = ref<ComicListItem[]>([])
 
 // Loading and Error States
 const isLoading = ref(true)
@@ -74,38 +93,32 @@ async function loadDiscoverySections() {
 
   try {
     const [
+      weeklyTopRes,
+      featuredRes,
       updatedRes,
       completedRes,
-      weeklyTopRes,
-      newRes,
-      featuredRes,
     ] = await Promise.allSettled([
-      // 1. Truyện mới cập nhật (Tối đa 6 truyện có chương mới nhất)
-      CatalogService.getComics({ sort: 'updated', per_page: 6 }),
-      // 2. Truyện hoàn thành (Tối đa 6 truyện)
-      CatalogService.getComics({ status: 'completed', per_page: 6 }),
-      // 3. Top truyện tuần (Tối đa 6 truyện có lượt xem cao)
+      // 1. Top truyện tuần (Tối đa 6 truyện có lượt xem cao)
       CatalogService.getComics({ sort: 'weekly_views', per_page: 6 }),
-      // 4. Truyện mới đăng (Tối đa 6 truyện mới nhất)
-      CatalogService.getComics({ sort: 'latest', per_page: 6 }),
-      // 5. Truyện nổi bật (Tối đa 6 truyện is_featured = 1)
+      // 2. Truyện nổi bật (Tối đa 6 truyện is_featured = 1)
       CatalogService.getComics({ is_featured: 1, per_page: 6 }),
+      // 3. Truyện mới cập nhật (Tối đa 6 truyện có chương mới nhất)
+      CatalogService.getComics({ sort: 'updated', per_page: 6 }),
+      // 4. Truyện hoàn thành (Tối đa 6 truyện)
+      CatalogService.getComics({ status: 'completed', per_page: 6 }),
     ])
 
+    if (weeklyTopRes.status === 'fulfilled') {
+      weeklyTopComics.value = dedupeAndLimit(weeklyTopRes.value.data || [], 6)
+    }
+    if (featuredRes.status === 'fulfilled') {
+      featuredComics.value = dedupeAndLimit(featuredRes.value.data || [], 6)
+    }
     if (updatedRes.status === 'fulfilled') {
       latestUpdatedComics.value = dedupeAndLimit(updatedRes.value.data || [], 6)
     }
     if (completedRes.status === 'fulfilled') {
       completedComics.value = dedupeAndLimit(completedRes.value.data || [], 6)
-    }
-    if (weeklyTopRes.status === 'fulfilled') {
-      weeklyTopComics.value = dedupeAndLimit(weeklyTopRes.value.data || [], 6)
-    }
-    if (newRes.status === 'fulfilled') {
-      newComics.value = dedupeAndLimit(newRes.value.data || [], 6)
-    }
-    if (featuredRes.status === 'fulfilled') {
-      featuredComics.value = dedupeAndLimit(featuredRes.value.data || [], 6)
     }
   } catch (err: unknown) {
     loadError.value = 'Không thể tải đầy đủ các khu vực khám phá truyện.'
@@ -148,69 +161,7 @@ onMounted(() => {
 
       <template v-else>
         <!-- ========================================== -->
-        <!-- 1. KHU VỰC: TRUYỆN MỚI CẬP NHẬT            -->
-        <!-- ========================================== -->
-        <section class="discovery-section section-latest-updated" aria-labelledby="heading-latest-updated">
-          <div class="section-header">
-            <div class="section-title-wrap">
-              <span class="section-icon" aria-hidden="true">🔄</span>
-              <h2 id="heading-latest-updated" class="section-title">
-                Truyện mới cập nhật
-              </h2>
-            </div>
-            <RouterLink to="/comics?sort=updated" class="btn-view-all">
-              <span>Xem tất cả</span>
-              <span aria-hidden="true">→</span>
-            </RouterLink>
-          </div>
-
-          <!-- Empty state -->
-          <div v-if="latestUpdatedComics.length === 0" class="section-empty">
-            <span>Chưa có truyện mới cập nhật chương.</span>
-          </div>
-
-          <!-- Comics Grid -->
-          <div v-else class="comics-grid">
-            <ComicCard
-              v-for="comic in latestUpdatedComics"
-              :key="'updated-' + comic.id"
-              :comic="comic"
-            />
-          </div>
-        </section>
-
-        <!-- ========================================== -->
-        <!-- 2. KHU VỰC: TRUYỆN HOÀN THÀNH              -->
-        <!-- ========================================== -->
-        <section class="discovery-section section-completed" aria-labelledby="heading-completed">
-          <div class="section-header">
-            <div class="section-title-wrap">
-              <span class="section-icon" aria-hidden="true">🏆</span>
-              <h2 id="heading-completed" class="section-title">
-                Truyện hoàn thành
-              </h2>
-            </div>
-            <RouterLink to="/comics?status=completed" class="btn-view-all">
-              <span>Xem tất cả</span>
-              <span aria-hidden="true">→</span>
-            </RouterLink>
-          </div>
-
-          <div v-if="completedComics.length === 0" class="section-empty">
-            <span>Chưa có tác phẩm nào ở trạng thái hoàn thành.</span>
-          </div>
-
-          <div v-else class="comics-grid">
-            <ComicCard
-              v-for="comic in completedComics"
-              :key="'completed-' + comic.id"
-              :comic="comic"
-            />
-          </div>
-        </section>
-
-        <!-- ========================================== -->
-        <!-- 3. KHU VỰC: TOP TRUYỆN TUẦN                -->
+        <!-- 1. KHU VỰC: TOP TRUYỆN TUẦN                -->
         <!-- ========================================== -->
         <section class="discovery-section section-weekly-top" aria-labelledby="heading-weekly-top">
           <div class="section-header">
@@ -243,44 +194,14 @@ onMounted(() => {
                 <span v-if="index === 0" class="rank-crown" aria-hidden="true">👑</span>
               </div>
               <div class="weekly-card-content">
-                <ComicCard :comic="comic" />
+                <ComicCard :comic="comic" @share="handleShareComic" />
               </div>
             </div>
           </div>
         </section>
 
         <!-- ========================================== -->
-        <!-- 4. KHU VỰC: TRUYỆN MỚI ĐĂNG                 -->
-        <!-- ========================================== -->
-        <section class="discovery-section section-new-comics" aria-labelledby="heading-new-comics">
-          <div class="section-header">
-            <div class="section-title-wrap">
-              <span class="section-icon" aria-hidden="true">✨</span>
-              <h2 id="heading-new-comics" class="section-title">
-                Truyện mới đăng
-              </h2>
-            </div>
-            <RouterLink to="/comics?sort=latest" class="btn-view-all">
-              <span>Xem tất cả</span>
-              <span aria-hidden="true">→</span>
-            </RouterLink>
-          </div>
-
-          <div v-if="newComics.length === 0" class="section-empty">
-            <span>Chưa có truyện mới được xuất bản.</span>
-          </div>
-
-          <div v-else class="comics-grid">
-            <ComicCard
-              v-for="comic in newComics"
-              :key="'new-' + comic.id"
-              :comic="comic"
-            />
-          </div>
-        </section>
-
-        <!-- ========================================== -->
-        <!-- 5. KHU VỰC: TRUYỆN NỔI BẬT                 -->
+        <!-- 2. KHU VỰC: TRUYỆN NỔI BẬT                 -->
         <!-- ========================================== -->
         <section class="discovery-section section-featured-comics" aria-labelledby="heading-featured">
           <div class="section-header">
@@ -290,7 +211,7 @@ onMounted(() => {
                 Truyện nổi bật
               </h2>
             </div>
-            <RouterLink to="/comics?sort=views" class="btn-view-all">
+            <RouterLink to="/comics?featured=1" class="btn-view-all">
               <span>Xem tất cả</span>
               <span aria-hidden="true">→</span>
             </RouterLink>
@@ -300,7 +221,7 @@ onMounted(() => {
             <span>Hiện chưa có tác phẩm nổi bật được đánh dấu.</span>
           </div>
 
-          <!-- Featured Comics Row / Grid (Max 5 items, special highlight) -->
+          <!-- Featured Comics Row / Grid (Max 6 items, special highlight) -->
           <div v-else class="featured-comics-grid">
             <div
               v-for="comic in featuredComics"
@@ -308,13 +229,91 @@ onMounted(() => {
               class="featured-card-wrap"
             >
               <div class="featured-glow-border">
-                <ComicCard :comic="comic" />
+                <ComicCard :comic="comic" @share="handleShareComic" />
               </div>
             </div>
           </div>
         </section>
+
+        <!-- ========================================== -->
+        <!-- 3. KHU VỰC: TRUYỆN MỚI CẬP NHẬT            -->
+        <!-- ========================================== -->
+        <section class="discovery-section section-latest-updated" aria-labelledby="heading-latest-updated">
+          <div class="section-header">
+            <div class="section-title-wrap">
+              <span class="section-icon" aria-hidden="true">🔄</span>
+              <h2 id="heading-latest-updated" class="section-title">
+                Truyện mới cập nhật
+              </h2>
+            </div>
+            <RouterLink to="/comics?sort=updated" class="btn-view-all">
+              <span>Xem tất cả</span>
+              <span aria-hidden="true">→</span>
+            </RouterLink>
+          </div>
+
+          <!-- Empty state -->
+          <div v-if="latestUpdatedComics.length === 0" class="section-empty">
+            <span>Chưa có truyện mới cập nhật chương.</span>
+          </div>
+
+          <!-- Comics Grid -->
+          <div v-else class="comics-grid">
+            <ComicCard
+              v-for="comic in latestUpdatedComics"
+              :key="'updated-' + comic.id"
+              :comic="comic"
+              @share="handleShareComic"
+            />
+          </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- 4. KHU VỰC: TRUYỆN HOÀN THÀNH              -->
+        <!-- ========================================== -->
+        <section class="discovery-section section-completed" aria-labelledby="heading-completed">
+          <div class="section-header">
+            <div class="section-title-wrap">
+              <span class="section-icon" aria-hidden="true">🏆</span>
+              <h2 id="heading-completed" class="section-title">
+                Truyện hoàn thành
+              </h2>
+            </div>
+            <RouterLink to="/comics?status=completed" class="btn-view-all">
+              <span>Xem tất cả</span>
+              <span aria-hidden="true">→</span>
+            </RouterLink>
+          </div>
+
+          <div v-if="completedComics.length === 0" class="section-empty">
+            <span>Chưa có tác phẩm nào ở trạng thái hoàn thành.</span>
+          </div>
+
+          <div v-else class="comics-grid">
+            <ComicCard
+              v-for="comic in completedComics"
+              :key="'completed-' + comic.id"
+              :comic="comic"
+              @share="handleShareComic"
+            />
+          </div>
+        </section>
       </template>
     </div>
+
+    <!-- Share Comic Modal -->
+    <ShareRecipientModal
+      v-if="sharingComic"
+      :is-open="isShareModalOpen"
+      :comic="{
+        id: sharingComic.id,
+        title: sharingComic.title,
+        slug: sharingComic.slug,
+        cover_url: sharingComic.cover_url,
+        author: sharingComic.author_name,
+      }"
+      @close="isShareModalOpen = false"
+    />
   </div>
 </template>
 

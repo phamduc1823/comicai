@@ -168,7 +168,6 @@ onUnmounted(() => {
         <!-- Banner Info Content -->
         <div class="container slide-content-container">
           <div class="slide-content">
-            <span class="slide-badge">Truyện nổi bật</span>
             <h2 class="slide-title">
               {{ banner.title_override || banner.comic.title }}
             </h2>
@@ -489,16 +488,21 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
+.slide-subtitle {
+  font-size: var(--font-size-base, 1rem);
+  font-weight: var(--font-weight-medium, 500);
+  color: var(--color-text-secondary);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
 @media (min-width: 768px) {
   .slide-title {
     font-size: var(--font-size-4xl);
   }
-}
 
-.slide-subtitle {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  .slide-subtitle {
+    font-size: var(--font-size-lg, 1.125rem);
+  }
 }
 
 .slide-actions {
