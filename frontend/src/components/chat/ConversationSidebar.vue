@@ -3,16 +3,25 @@ import { ref, computed } from 'vue'
 import type { Conversation } from '@/types/chat'
 import { echoConnectionStatus } from '@/services/echoService'
 
-const props = defineProps<{
-  conversations: Conversation[]
-  activeConversationId: number | null
-  isLoading: boolean
-  error: string | null
-}>()
+const props = withDefaults(
+  defineProps<{
+    conversations: Conversation[]
+    activeConversationId: number | null
+    isLoading: boolean
+    error: string | null
+    activeTab?: 'main' | 'requests'
+    requestsCount?: number
+  }>(),
+  {
+    activeTab: 'main',
+    requestsCount: 0,
+  }
+)
 
 const emit = defineEmits<{
   (e: 'select', conversationId: number): void
   (e: 'retry'): void
+  (e: 'change-tab', tab: 'main' | 'requests'): void
 }>()
 
 const searchQuery = ref('')
@@ -99,6 +108,38 @@ const connectionStatus = computed(() => echoConnectionStatus.value)
           ✕
         </button>
       </div>
+
+      <!-- Tab Switcher: Hộp thư & Tin nhắn chờ -->
+      <div class="sidebar-tabs" role="tablist" aria-label="Phân loại hộp thư">
+        <button
+          type="button"
+          role="tab"
+          class="sidebar-tab-btn"
+          :class="{ active: activeTab === 'main' }"
+          :aria-selected="activeTab === 'main'"
+          @click="emit('change-tab', 'main')"
+        >
+          <span>Hộp thư</span>
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          class="sidebar-tab-btn"
+          :class="{ active: activeTab === 'requests' }"
+          :aria-selected="activeTab === 'requests'"
+          @click="emit('change-tab', 'requests')"
+        >
+          <span>Tin nhắn chờ</span>
+          <span
+            v-if="requestsCount > 0"
+            class="tab-count-badge"
+            :aria-label="requestsCount + ' tin nhắn chờ chưa đọc'"
+          >
+            {{ requestsCount > 99 ? '99+' : requestsCount }}
+          </span>
+        </button>
+      </div>
     </div>
 
     <!-- Error State -->
@@ -122,9 +163,15 @@ const connectionStatus = computed(() => echoConnectionStatus.value)
 
     <!-- Empty State -->
     <div v-else-if="filteredConversations.length === 0" class="sidebar-empty">
-      <div class="empty-icon" aria-hidden="true">💬</div>
+      <div class="empty-icon" aria-hidden="true">{{ activeTab === 'requests' ? '📬' : '💬' }}</div>
       <p class="empty-text">
-        {{ searchQuery ? 'Không tìm thấy cuộc trò chuyện phù hợp.' : 'Chưa có cuộc trò chuyện nào.' }}
+        {{
+          searchQuery
+            ? 'Không tìm thấy cuộc trò chuyện phù hợp.'
+            : (activeTab === 'requests'
+                ? 'Không có tin nhắn chờ nào.'
+                : 'Chưa có cuộc trò chuyện nào.')
+        }}
       </p>
     </div>
 
@@ -199,6 +246,55 @@ const connectionStatus = computed(() => echoConnectionStatus.value)
   flex-direction: column;
   gap: var(--spacing-xs);
   background-color: var(--color-bg-surface);
+}
+
+.sidebar-tabs {
+  display: flex;
+  gap: 4px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  padding: 3px;
+  border-radius: var(--radius-md, 8px);
+  margin-top: 6px;
+}
+
+.sidebar-tab-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: #0f172a;
+  font-size: 0.85rem;
+  font-weight: 700;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sidebar-tab-btn:hover {
+  color: #000000;
+  background: #e2e8f0;
+}
+
+.sidebar-tab-btn.active {
+  background: #0f172a;
+  color: #38bdf8;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  font-weight: 700;
+}
+
+.tab-count-badge {
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 9999px;
+  line-height: 1.2;
 }
 
 .sidebar-title-row {

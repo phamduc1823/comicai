@@ -54,6 +54,11 @@ class ConversationResource extends JsonResource
             }),
             'last_message_at' => $this->last_message_at?->toISOString(),
             'participants' => ConversationParticipantResource::collection($this->whenLoaded('participants')),
+            'status' => $this->status ?? 'accepted',
+            'initiator_id' => $this->initiator_id ? (int) $this->initiator_id : null,
+            'is_pending_request' => $currentUserId && method_exists($this->resource, 'isPendingRequestFor')
+                ? $this->resource->isPendingRequestFor($currentUserId)
+                : false,
             'unread_count' => (int) ($this->unread_count ?? 0),
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),

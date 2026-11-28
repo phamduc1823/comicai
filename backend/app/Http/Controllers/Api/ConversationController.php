@@ -32,7 +32,8 @@ class ConversationController extends Controller
 
         $conversations = $this->conversationService->getConversationsForUser(
             $request->user(),
-            $request->getPerPage()
+            $request->getPerPage(),
+            (string) $request->input('tab', 'main')
         );
 
         return ConversationResource::collection($conversations);
@@ -147,6 +148,51 @@ class ConversationController extends Controller
 
         return response()->json([
             'data' => $result,
+        ]);
+    }
+
+    /**
+     * Get count of pending message requests for authenticated user.
+     */
+    public function requestsCount(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', Conversation::class);
+
+        $count = $this->conversationService->getMessageRequestsCount($request->user());
+
+        return response()->json([
+            'data' => [
+                'count' => $count,
+            ],
+        ]);
+    }
+
+    /**
+     * Accept a pending message request.
+     */
+    public function accept(Request $request, Conversation $conversation): JsonResponse
+    {
+        $this->authorize('view', $conversation);
+
+        $updated = $this->conversationService->acceptConversation($request->user(), $conversation);
+
+        return response()->json([
+            'message' => 'Đã chấp nhận cuộc trò chuyện.',
+            'data' => new ConversationResource($updated),
+        ]);
+    }
+
+    /**
+     * Reject a pending message request.
+     */
+    public function reject(Request $request, Conversation $conversation): JsonResponse
+    {
+        $this->authorize('view', $conversation);
+
+        $this->conversationService->rejectConversation($request->user(), $conversation);
+
+        return response()->json([
+            'message' => 'Đã từ chối tin nhắn chờ.',
         ]);
     }
 }

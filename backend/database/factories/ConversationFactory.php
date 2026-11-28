@@ -34,6 +34,8 @@ class ConversationFactory extends Factory
 
         return [
             'type' => 'direct',
+            'status' => 'accepted',
+            'initiator_id' => null,
             'user_one_id' => $userOneId,
             'user_two_id' => $userTwoId,
             'last_message_id' => null,

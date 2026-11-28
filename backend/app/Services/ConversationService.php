@@ -16,8 +16,9 @@ class ConversationService
 {
     /**
      * Get paginated conversations for the authenticated user with unread counts.
+     * Supports tab: 'main' (accepted or initiated) vs 'requests' (pending from other users).
      */
-    public function getConversationsForUser(User $user, int $perPage = 15): LengthAwarePaginator
+    public function getConversationsForUser(User $user, int $perPage = 15, string $tab = 'main'): LengthAwarePaginator
     {
         $unreadCountSubquery = DB::table('messages')
             ->selectRaw('count(*)')
@@ -32,7 +33,7 @@ class ConversationService
                     ->orWhereColumn('messages.id', '>', 'conversation_participants.last_read_message_id');
             });
 
-        return Conversation::query()
+        $query = Conversation::query()
             ->select('conversations.*')
             ->selectSub($unreadCountSubquery, 'unread_count')
             ->whereHas('participants', function ($q) use ($user) {
@@ -42,13 +43,77 @@ class ConversationService
                 $q->whereNotNull('last_message_id')
                     ->orWhereNotNull('last_message_at')
                     ->orWhereHas('messages');
-            })
+            });
+
+        if ($tab === 'requests') {
+            // Message requests tab: pending conversations initiated by other users
+            $query->where('conversations.status', 'pending')
+                  ->whereNotNull('conversations.initiator_id')
+                  ->where('conversations.initiator_id', '!=', $user->id);
+        } else {
+            // Main tab: accepted conversations OR pending conversations initiated by self OR legacy conversations
+            $query->where(function ($q) use ($user) {
+                $q->where('conversations.status', '!=', 'pending')
+                  ->orWhereNull('conversations.status')
+                  ->orWhere('conversations.initiator_id', $user->id)
+                  ->orWhereNull('conversations.initiator_id');
+            });
+        }
+
+        return $query
             ->with([
                 'participants.user:id,name,avatar_path,role',
                 'lastMessage',
             ])
             ->orderByRaw('CASE WHEN last_message_at IS NULL THEN 1 ELSE 0 END, last_message_at DESC, conversations.id DESC')
             ->paginate($perPage);
+    }
+
+    /**
+     * Get count of pending message requests for user.
+     */
+    public function getMessageRequestsCount(User $user): int
+    {
+        return Conversation::query()
+            ->whereHas('participants', function ($q) use ($user) {
+                $q->where('user_id', $user->id);
+            })
+            ->where('conversations.status', 'pending')
+            ->where('conversations.initiator_id', '!=', $user->id)
+            ->where(function ($q) {
+                $q->whereNotNull('last_message_id')
+                    ->orWhereNotNull('last_message_at')
+                    ->orWhereHas('messages');
+            })
+            ->count();
+    }
+
+    /**
+     * Accept a pending conversation request.
+     */
+    public function acceptConversation(User $user, Conversation $conversation): Conversation
+    {
+        if (! $conversation->participants()->where('user_id', $user->id)->exists()) {
+            abort(403, 'Bạn không có quyền thao tác trên cuộc trò chuyện này.');
+        }
+
+        $conversation->update(['status' => 'accepted']);
+        $conversation->status = 'accepted';
+
+        return $conversation;
+    }
+
+    /**
+     * Reject a pending conversation request.
+     */
+    public function rejectConversation(User $user, Conversation $conversation): bool
+    {
+        if (! $conversation->participants()->where('user_id', $user->id)->exists()) {
+            abort(403, 'Bạn không có quyền thao tác trên cuộc trò chuyện này.');
+        }
+
+        $conversation->update(['status' => 'rejected']);
+        return true;
     }
 
     /**
@@ -131,11 +196,13 @@ class ConversationService
 
         // Create new direct conversation in database transaction
         try {
-            $conversation = DB::transaction(function () use ($userOneId, $userTwoId) {
+            $conversation = DB::transaction(function () use ($userOneId, $userTwoId, $authUser) {
                 $conv = Conversation::create([
                     'type' => 'direct',
                     'user_one_id' => $userOneId,
                     'user_two_id' => $userTwoId,
+                    'status' => 'pending',
+                    'initiator_id' => $authUser->id,
                 ]);
 
                 $conv->participants()->createMany([

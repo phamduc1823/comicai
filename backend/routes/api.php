@@ -20,9 +20,11 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BannerController;
 use App\Http\Controllers\Api\ChapterController;
 use App\Http\Controllers\Api\ChapterUnlockController;
+use App\Http\Controllers\Api\ChatShareController;
 use App\Http\Controllers\Api\ComicController;
 use App\Http\Controllers\Api\ComicPurchaseController;
 use App\Http\Controllers\Api\CommentController;
+use App\Http\Controllers\Api\CommunityRankingController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\CreatorApplicationController;
 use App\Http\Controllers\Api\CreatorChapterController;
@@ -35,6 +37,7 @@ use App\Http\Controllers\Api\PostController;
 use App\Http\Controllers\Api\ReadingHistoryController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\TagController;
+use App\Http\Controllers\Api\UserFollowController;
 use App\Http\Controllers\Api\UserLibraryController;
 use App\Http\Controllers\Api\UserProfileController;
 use App\Http\Controllers\Api\WalletController;
@@ -61,6 +64,10 @@ Route::get('/comics/{slug}/chapters/{chapterNumber}', [ChapterController::class,
 Route::get('/ai-search', [AiSearchController::class, 'search']);
 
 // Community Public endpoints (no authentication required)
+Route::get('/community/rankings/top-liked', [CommunityRankingController::class, 'topLiked']);
+Route::get('/community/rankings/top-commented', [CommunityRankingController::class, 'topCommented']);
+Route::get('/community/suggested-users', [UserFollowController::class, 'suggestedUsers']);
+Route::get('/community/users/search', [UserFollowController::class, 'searchUsers']);
 Route::get('/posts', [PostController::class, 'index']);
 Route::get('/posts/{id}', [PostController::class, 'show']);
 Route::get('/comments', [CommentController::class, 'index']);
@@ -121,6 +128,12 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::post('/comics/{id}/bookmark', [UserLibraryController::class, 'toggleBookmark']);
     Route::get('/user/bookmarks', [UserLibraryController::class, 'bookmarks']);
 
+    // User-to-User Follows & Community Connections (CAI-COMMUNITY-01)
+    Route::get('/user/following', [UserFollowController::class, 'following']);
+    Route::get('/user/followers', [UserFollowController::class, 'followers']);
+    Route::post('/users/{id}/follow', [UserFollowController::class, 'follow']);
+    Route::delete('/users/{id}/follow', [UserFollowController::class, 'unfollow']);
+
     // User Reading History (Package 9.6.2 & 9.6.5.2)
     Route::get('/comics/{comicId}/reading-history', [ReadingHistoryController::class, 'showByComic']);
     Route::post('/comics/{comicId}/reading-history', [ReadingHistoryController::class, 'record'])->middleware('throttle:60,1');
@@ -131,14 +144,19 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     // Realtime Chat APIs (Package 9.7.3A Contract)
     Route::prefix('chat')->name('chat.')->group(function () {
         Route::get('/conversations', [ConversationController::class, 'index'])->name('conversations.index');
+        Route::get('/conversations/requests-count', [ConversationController::class, 'requestsCount'])->name('conversations.requests-count');
         Route::post('/conversations', [ConversationController::class, 'store'])->name('conversations.store')->middleware('throttle:30,1');
         Route::get('/conversations/{conversation}', [ConversationController::class, 'show'])->name('conversations.show');
+        Route::post('/conversations/{conversation}/accept', [ConversationController::class, 'accept'])->name('conversations.accept');
+        Route::post('/conversations/{conversation}/reject', [ConversationController::class, 'reject'])->name('conversations.reject');
         Route::get('/conversations/{conversation}/messages', [MessageController::class, 'index'])->name('messages.index');
         Route::post('/conversations/{conversation}/messages', [MessageController::class, 'store'])->name('messages.store')->middleware('throttle:60,1');
         Route::post('/conversations/{conversation}/read', [ConversationController::class, 'markAsRead'])->name('conversations.read')->middleware('throttle:60,1');
         Route::get('/unread-count', [ConversationController::class, 'unreadCount'])->name('unread-count');
         Route::get('/direct/{userId}', [ConversationController::class, 'findDirect'])->name('direct.find');
         Route::post('/direct/{userId}/messages', [MessageController::class, 'sendDirect'])->name('direct.messages')->middleware('throttle:60,1');
+        Route::get('/share/recipients', [ChatShareController::class, 'getRecipients'])->name('share.recipients');
+        Route::post('/share', [ChatShareController::class, 'share'])->name('share.send')->middleware('throttle:30,1');
     });
 
     // Notification System APIs (CAI-NOTIF-01)

@@ -19,6 +19,45 @@ export interface ConversationParticipant {
   user?: ChatUserSummary
 }
 
+export interface MessageImageAttachment {
+  path: string
+  url: string
+  name: string
+  size: number
+}
+
+export interface MessageComicAttachment {
+  id: number
+  title: string
+  slug: string
+  cover_url?: string | null
+  author_name?: string
+  is_unavailable: boolean
+}
+
+export interface MessagePostAttachment {
+  id: number
+  content: string
+  created_at: string | null
+  user?: {
+    id: number
+    name: string
+    avatar_url?: string | null
+  } | null
+  comic?: {
+    id: number
+    title: string
+    slug: string
+  } | null
+  is_unavailable: boolean
+}
+
+export interface MessageAttachments {
+  images?: MessageImageAttachment[]
+  comic?: MessageComicAttachment | null
+  post?: MessagePostAttachment | null
+}
+
 export interface Message {
   id: number
   conversation_id: number
@@ -28,6 +67,15 @@ export interface Message {
   client_message_id: string | null
   created_at: string | null
   status?: 'sending' | 'sent' | 'failed'
+  attachments?: MessageAttachments
+}
+
+export interface ShareRecipient {
+  id: number
+  name: string
+  avatar_url: string | null
+  role: string
+  conversation_id: number
 }
 
 export interface ConversationLastMessage {
@@ -41,6 +89,9 @@ export interface ConversationLastMessage {
 export interface Conversation {
   id: number
   type: 'direct' | 'group'
+  status?: 'pending' | 'accepted' | 'rejected'
+  initiator_id?: number | null
+  is_pending_request?: boolean
   recipient: ChatUserSummary | null
   last_message: ConversationLastMessage | null
   last_message_at: string | null

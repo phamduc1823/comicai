@@ -33,6 +33,11 @@ class IndexConversationsRequest extends FormRequest
                 'min:1',
                 'max:50',
             ],
+            'tab' => [
+                'sometimes',
+                'string',
+                'in:main,requests',
+            ],
         ];
     }
 

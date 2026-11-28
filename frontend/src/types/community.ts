@@ -107,6 +107,7 @@ export interface CommentItemData {
   likes_count: number
   replies_count: number
   is_liked: boolean
+  is_author?: boolean
   user: CommentAuthor
   replies?: CommentItemData[]
   created_at: string | null
@@ -130,5 +131,45 @@ export interface ListCommentsParams {
   commentable_id: number
   page?: number
   per_page?: number
+}
+
+export interface RankingUserSummary {
+  id: number
+  name: string
+  avatar_path: string | null
+  avatar_url: string | null
+  role: string
+}
+
+export interface RankingPostItem {
+  rank: number
+  id: number
+  content: string
+  snippet: string
+  weekly_count: number
+  weekly_likes_count?: number
+  weekly_comments_count?: number
+  created_at: string | null
+  user: RankingUserSummary
+}
+
+export interface SuggestedUserItem {
+  id: number
+  name: string
+  avatar_path: string | null
+  avatar_url: string | null
+  role: string
+  posts_count: number
+  is_following: boolean
+}
+
+export interface FollowingUserItem {
+  id: number
+  name: string
+  avatar_path: string | null
+  avatar_url: string | null
+  role: string
+  posts_count: number
+  is_following: boolean
 }
 

@@ -21,6 +21,8 @@ class Conversation extends Model
      */
     protected $fillable = [
         'type',
+        'status',
+        'initiator_id',
         'user_one_id',
         'user_two_id',
         'last_message_id',
@@ -36,6 +38,7 @@ class Conversation extends Model
     {
         return [
             'id' => 'integer',
+            'initiator_id' => 'integer',
             'user_one_id' => 'integer',
             'user_two_id' => 'integer',
             'last_message_id' => 'integer',
@@ -91,5 +94,22 @@ class Conversation extends Model
     public function userTwo(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_two_id');
+    }
+
+    /**
+     * Initiator user who sent the first message.
+     */
+    public function initiator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'initiator_id');
+    }
+
+    /**
+     * Determine if this conversation is a pending message request for given user.
+     */
+    public function isPendingRequestFor(int|User $user): bool
+    {
+        $userId = $user instanceof User ? $user->id : $user;
+        return $this->status === 'pending' && (int) $this->initiator_id !== (int) $userId;
     }
 }

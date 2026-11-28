@@ -8,11 +8,11 @@ import type {
 
 export class ChatService {
   /**
-   * Get paginated conversations for authenticated user.
+   * Get paginated conversations for authenticated user with optional tab ('main' | 'requests').
    */
-  static async getConversations(page = 1, perPage = 15): Promise<{ data: Conversation[]; meta?: unknown }> {
+  static async getConversations(page = 1, perPage = 15, tab: 'main' | 'requests' = 'main'): Promise<{ data: Conversation[]; meta?: unknown }> {
     const response = await httpClient.get<{ data: Conversation[]; meta?: unknown }>('/chat/conversations', {
-      params: { page, per_page: perPage },
+      params: { page, per_page: perPage, tab },
     })
     return response.data
   }
@@ -74,12 +74,36 @@ export class ChatService {
   }
 
   /**
-   * Send a new message to a conversation with optional client_message_id for idempotency.
+   * Send a new message to a conversation with optional client_message_id and attachments.
    */
   static async sendMessage(
     conversationId: number,
-    payload: { body: string; type?: string; client_message_id?: string | null }
+    payload: {
+      body?: string
+      type?: string
+      client_message_id?: string | null
+      comic_id?: number | null
+      post_id?: number | null
+      images?: File[]
+    }
   ): Promise<Message> {
+    if (payload.images && payload.images.length > 0) {
+      const formData = new FormData()
+      if (payload.body) formData.append('body', payload.body)
+      if (payload.type) formData.append('type', payload.type)
+      if (payload.client_message_id) formData.append('client_message_id', payload.client_message_id)
+      if (payload.comic_id) formData.append('comic_id', String(payload.comic_id))
+      if (payload.post_id) formData.append('post_id', String(payload.post_id))
+      payload.images.forEach((img) => formData.append('images[]', img))
+
+      const response = await httpClient.post<{ data: Message }>(
+        `/chat/conversations/${conversationId}/messages`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      )
+      return response.data.data
+    }
+
     const response = await httpClient.post<{ data: Message }>(
       `/chat/conversations/${conversationId}/messages`,
       payload
@@ -109,5 +133,55 @@ export class ChatService {
   static async getUnreadCount(): Promise<UnreadCountData> {
     const response = await httpClient.get<{ data: UnreadCountData }>('/chat/unread-count')
     return response.data.data
+  }
+
+  /**
+   * Get count of pending message requests for current user.
+   * GET /api/chat/conversations/requests-count
+   */
+  static async getMessageRequestsCount(): Promise<number> {
+    const response = await httpClient.get<{ data: { count: number } }>('/chat/conversations/requests-count')
+    return response.data.data?.count ?? 0
+  }
+
+  /**
+   * Accept a pending message request.
+   * POST /api/chat/conversations/{id}/accept
+   */
+  static async acceptConversation(conversationId: number): Promise<Conversation> {
+    const response = await httpClient.post<{ message: string; data: Conversation }>(`/chat/conversations/${conversationId}/accept`)
+    return response.data.data
+  }
+
+  /**
+   * Reject a pending message request.
+   * POST /api/chat/conversations/{id}/reject
+   */
+  static async rejectConversation(conversationId: number): Promise<void> {
+    await httpClient.post(`/chat/conversations/${conversationId}/reject`)
+  }
+
+  /**
+   * Get eligible recipients for sharing (users with accepted direct conversations).
+   */
+  static async getShareRecipients(): Promise<import('@/types/chat').ShareRecipient[]> {
+    const response = await httpClient.get<{ data: import('@/types/chat').ShareRecipient[] }>('/chat/share/recipients')
+    return response.data.data
+  }
+
+  /**
+   * Share comic or post to multiple recipients via direct messages.
+   */
+  static async shareToRecipients(payload: {
+    recipient_ids: number[]
+    comic_id?: number
+    post_id?: number
+    body?: string
+  }): Promise<{ message: string; sent_count: number }> {
+    const response = await httpClient.post<{ message: string; sent_count: number }>(
+      '/chat/share',
+      payload
+    )
+    return response.data
   }
 }

@@ -251,4 +251,49 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return $this->hasMany(PenNameReservation::class, 'reserved_by_user_id');
     }
+
+    /**
+     * Users that this user is following (One-way user follow).
+     */
+    public function followingUsers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'user_follows', 'follower_id', 'following_id')
+            ->withPivot('created_at');
+    }
+
+    /**
+     * Users that are following this user (One-way user follow).
+     */
+    public function followerUsers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'user_follows', 'following_id', 'follower_id')
+            ->withPivot('created_at');
+    }
+
+    /**
+     * User follow records where this user is the follower.
+     */
+    public function userFollowing(): HasMany
+    {
+        return $this->hasMany(UserFollow::class, 'follower_id');
+    }
+
+    /**
+     * User follow records where this user is followed.
+     */
+    public function userFollowers(): HasMany
+    {
+        return $this->hasMany(UserFollow::class, 'following_id');
+    }
+
+    /**
+     * Check if this user is following target user.
+     */
+    public function isFollowingUser(int|User $targetUser): bool
+    {
+        $targetId = $targetUser instanceof User ? $targetUser->id : $targetUser;
+        return UserFollow::where('follower_id', $this->id)
+            ->where('following_id', $targetId)
+            ->exists();
+    }
 }

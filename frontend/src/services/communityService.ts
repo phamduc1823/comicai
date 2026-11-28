@@ -13,6 +13,9 @@ import type {
   CreateCommentPayload,
   ReplyCommentPayload,
   ListCommentsParams,
+  RankingPostItem,
+  SuggestedUserItem,
+  FollowingUserItem,
 } from '@/types/community'
 
 export class CommunityService {
@@ -205,6 +208,84 @@ export class CommunityService {
   static async unlikeComment(id: number | string): Promise<LikeResponse> {
     const encodedId = encodeURIComponent(String(id))
     const response = await httpClient.delete<LikeResponse>(`/comments/${encodedId}/like`)
+    return response.data
+  }
+
+  /**
+   * Get top 5 most liked posts in the last 7 days.
+   * GET /api/community/rankings/top-liked
+   */
+  static async getTopLikedPosts(): Promise<{ data: RankingPostItem[] }> {
+    const response = await httpClient.get<{ data: RankingPostItem[] }>('/community/rankings/top-liked')
+    return response.data
+  }
+
+  /**
+   * Get top 5 most commented posts in the last 7 days.
+   * GET /api/community/rankings/top-commented
+   */
+  static async getTopCommentedPosts(): Promise<{ data: RankingPostItem[] }> {
+    const response = await httpClient.get<{ data: RankingPostItem[] }>('/community/rankings/top-commented')
+    return response.data
+  }
+
+  /**
+   * Get suggested users to follow (max 5 active accounts).
+   * GET /api/community/suggested-users
+   */
+  static async getSuggestedUsers(): Promise<{ data: SuggestedUserItem[] }> {
+    const response = await httpClient.get<{ data: SuggestedUserItem[] }>('/community/suggested-users')
+    return response.data
+  }
+
+  /**
+   * Search users for community follow connection.
+   * GET /api/community/users/search?q=...
+   */
+  static async searchUsers(query: string): Promise<{ data: SuggestedUserItem[] }> {
+    const response = await httpClient.get<{ data: SuggestedUserItem[] }>('/community/users/search', {
+      params: { q: query },
+    })
+    return response.data
+  }
+
+  /**
+   * Get list of users followed by authenticated user.
+   * GET /api/user/following
+   */
+  static async getFollowingUsers(limit = 20): Promise<{ data: FollowingUserItem[]; meta: { total: number; limit: number } }> {
+    const response = await httpClient.get<{ data: FollowingUserItem[]; meta: { total: number; limit: number } }>('/user/following', {
+      params: { limit },
+    })
+    return response.data
+  }
+
+  /**
+   * Get list of users following the authenticated user.
+   * GET /api/user/followers
+   */
+  static async getFollowerUsers(limit = 20): Promise<{ data: FollowingUserItem[]; meta: { total: number; limit: number } }> {
+    const response = await httpClient.get<{ data: FollowingUserItem[]; meta: { total: number; limit: number } }>('/user/followers', {
+      params: { limit },
+    })
+    return response.data
+  }
+
+  /**
+   * Follow a user (one-way relationship).
+   * POST /api/users/{id}/follow
+   */
+  static async followUser(userId: number): Promise<{ message: string; is_following: boolean; following_id: number }> {
+    const response = await httpClient.post<{ message: string; is_following: boolean; following_id: number }>(`/users/${userId}/follow`)
+    return response.data
+  }
+
+  /**
+   * Unfollow a user.
+   * DELETE /api/users/{id}/follow
+   */
+  static async unfollowUser(userId: number): Promise<{ message: string; is_following: boolean; following_id: number }> {
+    const response = await httpClient.delete<{ message: string; is_following: boolean; following_id: number }>(`/users/${userId}/follow`)
     return response.data
   }
 }

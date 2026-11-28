@@ -23,6 +23,8 @@ export const useChatStore = defineStore('chat', () => {
     next_cursor: null,
   })
   const totalUnreadCount = ref<number>(0)
+  const activeTab = ref<'main' | 'requests'>('main')
+  const messageRequestsCount = ref<number>(0)
   const isChatViewActive = ref<boolean>(false)
   const isWindowVisible = ref<boolean>(
     typeof document !== 'undefined' ? document.visibilityState === 'visible' : true
@@ -99,21 +101,75 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
-   * Fetch conversations list from REST API.
+   * Fetch conversations list from REST API with tab support ('main' | 'requests').
    */
-  async function fetchConversations(page = 1, perPage = 20): Promise<void> {
+  async function fetchConversations(page = 1, perPage = 20, tab?: 'main' | 'requests'): Promise<void> {
+    if (tab) {
+      activeTab.value = tab
+    }
     isLoadingConversations.value = true
     error.value = null
 
     try {
-      const response = await ChatService.getConversations(page, perPage)
+      const response = await ChatService.getConversations(page, perPage, activeTab.value)
       conversations.value = response.data
       sortConversations()
       updateComputedTotalUnread()
+      fetchMessageRequestsCount()
     } catch (err) {
       error.value = getErrorMessage(err, 'Không thể tải danh sách cuộc trò chuyện.')
     } finally {
       isLoadingConversations.value = false
+    }
+  }
+
+  /**
+   * Fetch count of pending message requests.
+   */
+  async function fetchMessageRequestsCount(): Promise<void> {
+    try {
+      const count = await ChatService.getMessageRequestsCount()
+      messageRequestsCount.value = count
+    } catch {
+      // Non-blocking
+    }
+  }
+
+  /**
+   * Accept active pending message request.
+   */
+  async function acceptActiveConversation(): Promise<void> {
+    if (!activeConversation.value?.id) return
+    try {
+      const updated = await ChatService.acceptConversation(activeConversation.value.id)
+      activeConversation.value = { ...activeConversation.value, ...updated, status: 'accepted', is_pending_request: false }
+      const idx = conversations.value.findIndex((c) => c.id === activeConversation.value?.id)
+      if (idx !== -1) {
+        conversations.value[idx] = { ...conversations.value[idx], status: 'accepted', is_pending_request: false }
+      }
+      if (messageRequestsCount.value > 0) {
+        messageRequestsCount.value -= 1
+      }
+    } catch (err) {
+      error.value = getErrorMessage(err, 'Không thể chấp nhận cuộc trò chuyện.')
+    }
+  }
+
+  /**
+   * Reject active pending message request.
+   */
+  async function rejectActiveConversation(): Promise<void> {
+    if (!activeConversation.value?.id) return
+    try {
+      await ChatService.rejectConversation(activeConversation.value.id)
+      const convId = activeConversation.value.id
+      conversations.value = conversations.value.filter((c) => c.id !== convId)
+      closeConversation()
+      if (messageRequestsCount.value > 0) {
+        messageRequestsCount.value -= 1
+      }
+    } catch (err) {
+      error.value = getErrorMessage(err, 'Không thể từ chối tin nhắn chờ.')
     }
   }
 
@@ -308,14 +364,30 @@ export const useChatStore = defineStore('chat', () => {
    * Immediately adds the message to activeMessages and updates sidebar preview,
    * then reconciles with server response or marks as failed on network error.
    */
-  async function sendMessage(body: string, type = 'text', overrideUserId?: number): Promise<Message | null> {
+  async function sendMessage(
+    body: string,
+    type = 'text',
+    overrideUserId?: number,
+    attachments?: {
+      images?: File[]
+      comic_id?: number | null
+      comic_preview?: import('@/types/chat').MessageComicAttachment | null
+      post_id?: number | null
+    }
+  ): Promise<Message | null> {
     const trimmed = body.trim()
-    if (!activeConversation.value || !trimmed) {
+    const hasAttachments = !!(
+      (attachments?.images && attachments.images.length > 0) ||
+      attachments?.comic_id ||
+      attachments?.post_id
+    )
+
+    if (!activeConversation.value || (!trimmed && !hasAttachments)) {
       return null
     }
 
     const convId = Number(activeConversation.value.id)
-    const clientMessageId = getOrCreateClientMessageId(trimmed)
+    const clientMessageId = getOrCreateClientMessageId(trimmed || 'attachment')
     const authStore = useAuthStore()
     const currentUserId = Number(overrideUserId ?? authStore.user?.id ?? 0)
 
@@ -338,6 +410,15 @@ export const useChatStore = defineStore('chat', () => {
         client_message_id: clientMessageId,
         created_at: new Date().toISOString(),
         status: 'sending',
+        attachments: attachments ? {
+          images: attachments.images ? attachments.images.map((f) => ({
+            path: '',
+            url: URL.createObjectURL(f),
+            name: f.name,
+            size: f.size,
+          })) : [],
+          comic: attachments.comic_preview ?? null,
+        } : undefined,
       }
       activeMessages.value = [optimisticMsg]
 
@@ -403,6 +484,15 @@ export const useChatStore = defineStore('chat', () => {
       client_message_id: clientMessageId,
       created_at: new Date().toISOString(),
       status: 'sending',
+      attachments: attachments ? {
+        images: attachments.images ? attachments.images.map((f) => ({
+          path: '',
+          url: URL.createObjectURL(f),
+          name: f.name,
+          size: f.size,
+        })) : [],
+        comic: attachments.comic_preview ?? null,
+      } : undefined,
     }
 
     // Instantly append optimistic message to chat pane (0ms latency perception)
@@ -412,7 +502,7 @@ export const useChatStore = defineStore('chat', () => {
       id: tempId,
       sender_id: currentUserId,
       type,
-      body: trimmed,
+      body: trimmed || (attachments?.comic_id ? '[Truyện đính kèm]' : '[Hình ảnh]'),
       created_at: optimisticMsg.created_at,
     }
     activeConversation.value.last_message = optimisticLastMsg
@@ -434,6 +524,9 @@ export const useChatStore = defineStore('chat', () => {
         body: trimmed,
         type,
         client_message_id: clientMessageId,
+        comic_id: attachments?.comic_id,
+        post_id: attachments?.post_id,
+        images: attachments?.images,
       })
 
       // On successful send, clear saved client_message_id
@@ -866,6 +959,8 @@ export const useChatStore = defineStore('chat', () => {
     activeMessages,
     messagesPagination,
     totalUnreadCount,
+    activeTab,
+    messageRequestsCount,
     isChatViewActive,
     isWindowVisible,
     isLoadingConversations,
@@ -879,6 +974,9 @@ export const useChatStore = defineStore('chat', () => {
 
     // Actions
     fetchConversations,
+    fetchMessageRequestsCount,
+    acceptActiveConversation,
+    rejectActiveConversation,
     openConversation,
     openDraftConversation,
     closeConversation,

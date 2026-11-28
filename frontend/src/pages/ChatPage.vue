@@ -47,9 +47,11 @@ onMounted(async () => {
   }
 
   // Fetch initial conversations list & unread count
+  const initialTab = route.query.tab === 'requests' ? 'requests' : 'main'
   await Promise.all([
-    chatStore.fetchConversations(),
+    chatStore.fetchConversations(1, 20, initialTab),
     chatStore.fetchUnreadCount(),
+    chatStore.fetchMessageRequestsCount(),
   ])
 
   // Handle query params if navigated with ?user_id=... or ?conversation_id=...
@@ -123,10 +125,23 @@ function handleBackToSidebar() {
   router.replace({ path: '/chat' })
 }
 
-async function handleSendMessage(body: string) {
+async function handleSendMessage(payload: any) {
   try {
     const wasDraft = chatStore.activeConversation?.id === 0
-    await chatStore.sendMessage(body)
+    if (typeof payload === 'string') {
+      await chatStore.sendMessage(payload)
+    } else {
+      await chatStore.sendMessage(
+        payload.body || '',
+        'text',
+        undefined,
+        {
+          images: payload.images,
+          comic_id: payload.comic_id,
+          comic_preview: payload.comic_preview,
+        }
+      )
+    }
     composerRef.value?.clear()
     if (wasDraft && chatStore.activeConversation?.id) {
       router.replace({ path: '/chat', query: { conversation_id: chatStore.activeConversation.id } })
@@ -143,6 +158,26 @@ function handleLoadOlderMessages() {
 function handleRetrySidebar() {
   chatStore.fetchConversations()
 }
+
+async function handleChangeTab(tab: 'main' | 'requests') {
+  await chatStore.fetchConversations(1, 20, tab)
+  const query = { ...route.query }
+  if (tab === 'requests') {
+    query.tab = 'requests'
+  } else {
+    delete query.tab
+  }
+  router.replace({ path: '/chat', query })
+}
+
+async function handleAcceptRequest() {
+  await chatStore.acceptActiveConversation()
+}
+
+async function handleRejectRequest() {
+  await chatStore.rejectActiveConversation()
+  router.replace({ path: '/chat', query: route.query.tab ? { tab: route.query.tab } : {} })
+}
 </script>
 
 <template>
@@ -155,13 +190,42 @@ function handleRetrySidebar() {
           :active-conversation-id="chatStore.activeConversationId"
           :is-loading="chatStore.isLoadingConversations || isOpeningFromRoute"
           :error="chatStore.error"
+          :active-tab="chatStore.activeTab"
+          :requests-count="chatStore.messageRequestsCount"
           @select="handleSelectConversation"
           @retry="handleRetrySidebar"
+          @change-tab="handleChangeTab"
         />
       </div>
 
       <!-- Right: Message Area (List + Composer) -->
       <main class="chat-main" aria-label="Khu vực tin nhắn">
+        <!-- Message Request Action Banner -->
+        <div v-if="chatStore.activeConversation?.is_pending_request" class="message-request-banner" role="alert">
+          <div class="banner-text-group">
+            <span class="banner-icon" aria-hidden="true">📬</span>
+            <div class="banner-desc">
+              <strong>Tin nhắn chờ:</strong> Người này muốn gửi tin nhắn cho bạn. Chấp nhận để tiếp tục trò chuyện hoặc từ chối để xóa tin nhắn chờ này.
+            </div>
+          </div>
+          <div class="banner-actions">
+            <button
+              type="button"
+              class="btn-request-accept"
+              @click="handleAcceptRequest"
+            >
+              Chấp nhận
+            </button>
+            <button
+              type="button"
+              class="btn-request-reject"
+              @click="handleRejectRequest"
+            >
+              Từ chối
+            </button>
+          </div>
+        </div>
+
         <MessageList
           :conversation="chatStore.activeConversation"
           :messages="chatStore.activeMessages"
@@ -218,6 +282,70 @@ function handleRetrySidebar() {
   height: 100%;
   min-width: 0;
   background-color: var(--color-bg);
+}
+
+.message-request-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 18px;
+  background: #f0fdf4;
+  border-bottom: 1px solid #bbf7d0;
+  color: #166534;
+}
+
+.banner-text-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.banner-icon {
+  font-size: 1.25rem;
+}
+
+.banner-desc {
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.banner-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.btn-request-accept {
+  padding: 6px 14px;
+  background: #16a34a;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.btn-request-accept:hover {
+  background: #15803d;
+}
+
+.btn-request-reject {
+  padding: 6px 14px;
+  background: #ffffff;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-request-reject:hover {
+  background: #fee2e2;
 }
 
 @media (max-width: 768px) {
