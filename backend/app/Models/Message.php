@@ -23,6 +23,9 @@ class Message extends Model
         'client_message_id',
         'type',
         'body',
+        'comic_id',
+        'post_id',
+        'images',
     ];
 
     /**
@@ -37,6 +40,9 @@ class Message extends Model
         'sender_id',
         'type',
         'body',
+        'comic_id',
+        'post_id',
+        'images',
         'client_message_id',
         'created_at',
     ];
@@ -52,6 +58,9 @@ class Message extends Model
             'id' => 'integer',
             'conversation_id' => 'integer',
             'sender_id' => 'integer',
+            'comic_id' => 'integer',
+            'post_id' => 'integer',
+            'images' => 'array',
         ];
     }
 
@@ -69,5 +78,21 @@ class Message extends Model
     public function sender(): BelongsTo
     {
         return $this->belongsTo(User::class, 'sender_id');
+    }
+
+    /**
+     * Attached comic if any.
+     */
+    public function comic(): BelongsTo
+    {
+        return $this->belongsTo(Comic::class, 'comic_id');
+    }
+
+    /**
+     * Attached community post if any.
+     */
+    public function post(): BelongsTo
+    {
+        return $this->belongsTo(Post::class, 'post_id');
     }
 }

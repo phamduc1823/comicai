@@ -43,7 +43,12 @@ class MessageService
         $afterId = isset($filters['after_id']) ? (int) $filters['after_id'] : null;
 
         // Strictly isolate query to the authorized conversation
-        $query = Message::where('conversation_id', $conversation->id);
+        $query = Message::where('conversation_id', $conversation->id)
+            ->with([
+                'comic:id,title,slug,cover_path,author_name',
+                'post.user:id,name,avatar_path',
+                'post.comic:id,title,slug',
+            ]);
 
         if ($afterId !== null) {
             // Case 1: Polling or fetching newer messages (id > after_id)
@@ -124,11 +129,47 @@ class MessageService
      */
     public function sendMessage(User $user, Conversation $conversation, array $data): array
     {
-        $body = (string) $data['body'];
-        $type = isset($data['type']) && is_string($data['type']) ? $data['type'] : 'text';
+        $body = isset($data['body']) && $data['body'] !== null ? (string) $data['body'] : '';
         $clientMessageId = isset($data['client_message_id']) && is_string($data['client_message_id']) && trim($data['client_message_id']) !== ''
             ? trim($data['client_message_id'])
             : null;
+
+        $comicId = isset($data['comic_id']) && $data['comic_id'] ? (int) $data['comic_id'] : null;
+        $postId = isset($data['post_id']) && $data['post_id'] ? (int) $data['post_id'] : null;
+
+        // Process image uploads if any
+        $uploadedImages = [];
+        if (isset($data['images']) && is_array($data['images'])) {
+            foreach ($data['images'] as $imageItem) {
+                if ($imageItem instanceof \Illuminate\Http\UploadedFile) {
+                    $path = $imageItem->store('chat-images', 'public');
+                    $uploadedImages[] = [
+                        'path' => $path,
+                        'url' => \Illuminate\Support\Facades\Storage::disk('public')->url($path),
+                        'name' => $imageItem->getClientOriginalName(),
+                        'size' => $imageItem->getSize(),
+                    ];
+                } elseif (is_array($imageItem) && !empty($imageItem['path'])) {
+                    $uploadedImages[] = $imageItem;
+                }
+            }
+        }
+
+        if (!isset($data['type']) || $data['type'] === 'text') {
+            if (!empty($uploadedImages) && $comicId) {
+                $type = 'mixed';
+            } elseif (!empty($uploadedImages)) {
+                $type = 'image';
+            } elseif ($comicId) {
+                $type = 'comic';
+            } elseif ($postId) {
+                $type = 'post';
+            } else {
+                $type = 'text';
+            }
+        } else {
+            $type = (string) $data['type'];
+        }
 
         // Idempotency pre-check if client_message_id is provided
         if ($clientMessageId !== null) {
@@ -140,6 +181,11 @@ class MessageService
             if ($existing) {
                 if ($existing->body === $body && $existing->type === $type) {
                     // Retry with same key & identical content -> HTTP 200 OK (idempotent replay)
+                    $existing->load([
+                        'comic:id,title,slug,cover_path,author_name',
+                        'post.user:id,name,avatar_path',
+                        'post.comic:id,title,slug',
+                    ]);
                     return [
                         'message' => $existing,
                         'status' => 200,
@@ -153,25 +199,42 @@ class MessageService
 
         // Create message and update conversation within a single database transaction
         try {
-            $result = DB::transaction(function () use ($user, $conversation, $body, $type, $clientMessageId) {
+            $result = DB::transaction(function () use ($user, $conversation, $body, $type, $clientMessageId, $comicId, $postId, $uploadedImages) {
                 $message = Message::create([
                     'conversation_id' => $conversation->id,
                     'sender_id' => $user->id,
                     'type' => $type,
                     'body' => $body,
+                    'comic_id' => $comicId,
+                    'post_id' => $postId,
+                    'images' => !empty($uploadedImages) ? $uploadedImages : null,
                     'client_message_id' => $clientMessageId,
                 ]);
 
                 // Atomically update conversation last_message if this message is newer
+                $updateData = [
+                    'last_message_id' => $message->id,
+                    'last_message_at' => $message->created_at,
+                ];
+
+                // Auto-accept pending message request when recipient replies
+                if ($conversation->status === 'pending' && $conversation->initiator_id && (int) $user->id !== (int) $conversation->initiator_id) {
+                    $updateData['status'] = 'accepted';
+                    $conversation->status = 'accepted';
+                }
+
                 Conversation::where('id', $conversation->id)
                     ->where(function ($query) use ($message) {
                         $query->whereNull('last_message_id')
                             ->orWhere('last_message_id', '<', $message->id);
                     })
-                    ->update([
-                        'last_message_id' => $message->id,
-                        'last_message_at' => $message->created_at,
-                    ]);
+                    ->update($updateData);
+
+                $message->load([
+                    'comic:id,title,slug,cover_path,author_name',
+                    'post.user:id,name,avatar_path',
+                    'post.comic:id,title,slug',
+                ]);
 
                 return $message;
             });
@@ -219,6 +282,11 @@ class MessageService
                     ->firstOrFail();
 
                 if ($existing->body === $body && $existing->type === $type) {
+                    $existing->load([
+                        'comic:id,title,slug,cover_path,author_name',
+                        'post.user:id,name,avatar_path',
+                        'post.comic:id,title,slug',
+                    ]);
                     return [
                         'message' => $existing,
                         'status' => 200,

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, computed } from 'vue'
+import { RouterLink } from 'vue-router'
 import type { Conversation, Message } from '@/types/chat'
 
 const props = defineProps<{
@@ -91,6 +92,16 @@ const otherParticipantLastReadId = computed(() => {
   )
   return other?.last_read_message_id ? Number(other.last_read_message_id) : 0
 })
+
+const lightboxImageUrl = ref<string | null>(null)
+
+function openImageLightbox(url: string) {
+  lightboxImageUrl.value = url
+}
+
+function closeImageLightbox() {
+  lightboxImageUrl.value = null
+}
 </script>
 
 <template>
@@ -189,7 +200,79 @@ const otherParticipantLastReadId = computed(() => {
             'is-failed': msg.status === 'failed',
           }"
         >
-          <div class="message-body">{{ msg.body }}</div>
+          <!-- Attached Images Grid -->
+          <div
+            v-if="msg.attachments?.images && msg.attachments.images.length > 0"
+            class="msg-attachments-images"
+            :class="'count-' + Math.min(msg.attachments.images.length, 5)"
+          >
+            <div
+              v-for="(img, idx) in msg.attachments.images"
+              :key="idx"
+              class="attachment-img-item"
+              @click="openImageLightbox(img.url)"
+            >
+              <img :src="img.url" :alt="img.name || 'Ảnh đính kèm'" loading="lazy" />
+            </div>
+          </div>
+
+          <!-- Attached Comic Card -->
+          <div v-if="msg.attachments?.comic" class="msg-attached-comic-wrapper">
+            <div v-if="msg.attachments.comic.is_unavailable" class="msg-attached-comic unavailable">
+              <span class="comic-icon" aria-hidden="true">📖</span>
+              <div class="comic-info">
+                <span class="comic-title">Truyện không khả dụng hoặc đã bị gỡ</span>
+              </div>
+            </div>
+            <RouterLink
+              v-else
+              :to="'/comics/' + msg.attachments.comic.slug"
+              class="msg-attached-comic"
+              :title="'Xem truyện ' + msg.attachments.comic.title"
+            >
+              <div class="comic-thumb">
+                <img
+                  v-if="msg.attachments.comic.cover_url"
+                  :src="msg.attachments.comic.cover_url"
+                  :alt="msg.attachments.comic.title"
+                />
+                <span v-else>📖</span>
+              </div>
+              <div class="comic-info">
+                <span class="comic-badge">Truyện đính kèm</span>
+                <h4 class="comic-title">{{ msg.attachments.comic.title }}</h4>
+                <span class="comic-author">{{ msg.attachments.comic.author_name || 'Tác giả' }}</span>
+              </div>
+              <span class="comic-arrow" aria-hidden="true">›</span>
+            </RouterLink>
+          </div>
+
+          <!-- Attached Post Card -->
+          <div v-if="msg.attachments?.post" class="msg-attached-post-wrapper">
+            <div v-if="msg.attachments.post.is_unavailable" class="msg-attached-post unavailable">
+              <span class="post-icon" aria-hidden="true">💬</span>
+              <div class="post-info">
+                <span class="post-title">Bài viết không khả dụng hoặc đã bị gỡ</span>
+              </div>
+            </div>
+            <RouterLink
+              v-else
+              :to="'/posts/' + msg.attachments.post.id"
+              class="msg-attached-post"
+              title="Xem bài viết cộng đồng"
+            >
+              <div class="post-badge-row">
+                <span class="post-badge">Bài viết cộng đồng</span>
+              </div>
+              <div class="post-author-row">
+                <strong class="post-author-name">{{ msg.attachments.post.user?.name || 'Thành viên' }}</strong>
+              </div>
+              <p class="post-content-snippet">{{ msg.attachments.post.content }}</p>
+            </RouterLink>
+          </div>
+
+          <!-- Text Body -->
+          <div v-if="msg.body" class="message-body">{{ msg.body }}</div>
           <div class="message-meta">
             <span v-if="msg.status === 'sending'" class="message-status-sending" title="Đang gửi...">
               ⏱ Đang gửi
@@ -207,6 +290,25 @@ const otherParticipantLastReadId = computed(() => {
             </span>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Image Lightbox Modal -->
+    <div
+      v-if="lightboxImageUrl"
+      class="lightbox-backdrop"
+      @click="closeImageLightbox"
+    >
+      <div class="lightbox-dialog" @click.stop>
+        <button
+          type="button"
+          class="lightbox-close"
+          aria-label="Đóng ảnh"
+          @click="closeImageLightbox"
+        >
+          ✕
+        </button>
+        <img :src="lightboxImageUrl" alt="Ảnh phóng to" class="lightbox-full-img" />
       </div>
     </div>
   </div>
@@ -499,5 +601,224 @@ const otherParticipantLastReadId = computed(() => {
   .btn-back-mobile {
     display: inline-flex;
   }
+}
+
+/* Attachments in Message Bubble */
+.msg-attachments-images {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 6px;
+  border-radius: 8px;
+  overflow: hidden;
+  max-width: 300px;
+}
+
+.msg-attachments-images.count-1 {
+  grid-template-columns: 1fr;
+}
+
+.msg-attachments-images.count-2 {
+  grid-template-columns: 1fr 1fr;
+}
+
+.msg-attachments-images.count-3 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.msg-attachments-images.count-4 {
+  grid-template-columns: 1fr 1fr;
+}
+
+.msg-attachments-images.count-5 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.attachment-img-item {
+  position: relative;
+  aspect-ratio: 1;
+  overflow: hidden;
+  cursor: pointer;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.attachment-img-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.15s ease;
+}
+
+.attachment-img-item:hover img {
+  transform: scale(1.05);
+}
+
+.msg-attached-comic-wrapper,
+.msg-attached-post-wrapper {
+  margin-bottom: 6px;
+}
+
+.msg-attached-comic {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background-color: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  text-decoration: none;
+  color: inherit;
+  transition: all 0.15s ease;
+  max-width: 280px;
+}
+
+.msg-attached-comic:hover {
+  background-color: rgba(0, 0, 0, 0.35);
+  border-color: var(--color-primary);
+}
+
+.msg-attached-comic.unavailable {
+  opacity: 0.7;
+}
+
+.comic-thumb {
+  width: 32px;
+  height: 44px;
+  border-radius: 4px;
+  overflow: hidden;
+  background-color: #0b0f19;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.comic-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.comic-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.comic-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--color-primary);
+  line-height: 1.2;
+}
+
+.comic-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comic-author {
+  font-size: 10px;
+  opacity: 0.75;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comic-arrow {
+  font-size: 16px;
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+.msg-attached-post {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 10px;
+  background-color: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  text-decoration: none;
+  color: inherit;
+  transition: all 0.15s ease;
+  max-width: 280px;
+}
+
+.msg-attached-post:hover {
+  background-color: rgba(0, 0, 0, 0.35);
+  border-color: var(--color-primary);
+}
+
+.post-badge {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.post-author-name {
+  font-size: 11px;
+}
+
+.post-content-snippet {
+  margin: 0;
+  font-size: 11px;
+  opacity: 0.85;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Lightbox Modal */
+.lightbox-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 99999;
+  padding: var(--spacing-md);
+  backdrop-filter: blur(4px);
+}
+
+.lightbox-dialog {
+  position: relative;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lightbox-full-img {
+  max-width: 100%;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+}
+
+.lightbox-close {
+  position: absolute;
+  top: -36px;
+  right: 0;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ffffff;
+  border: none;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 </style>

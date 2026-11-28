@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import type { ComicListItem } from '@/types/catalog'
+import AttachComicModal from '@/components/chat/AttachComicModal.vue'
 
 const props = defineProps<{
   isSending: boolean
@@ -7,17 +9,34 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'send', body: string): void
+  (e: 'send', payload: {
+    body: string
+    images?: File[]
+    comic_id?: number
+    comic_preview?: any
+  }): void
 }>()
 
 const text = ref('')
 const localError = ref<string | null>(null)
+const fileInputRef = ref<HTMLInputElement | null>(null)
+
+// Attachments state
+const selectedImages = ref<File[]>([])
+const selectedImagePreviews = ref<string[]>([])
+const selectedComic = ref<ComicListItem | null>(null)
+const isAttachComicModalOpen = ref(false)
 
 const trimmedText = computed(() => text.value.trim())
 const charCount = computed(() => text.value.length)
 const isOverLimit = computed(() => charCount.value > 2000)
+
+const hasAttachments = computed(() => {
+  return selectedImages.value.length > 0 || selectedComic.value !== null
+})
+
 const canSend = computed(() => {
-  return trimmedText.value.length > 0 && !isOverLimit.value
+  return (trimmedText.value.length > 0 || hasAttachments.value) && !isOverLimit.value
 })
 
 function handleKeydown(event: KeyboardEvent) {
@@ -27,9 +46,70 @@ function handleKeydown(event: KeyboardEvent) {
   }
 }
 
+function triggerImagePicker() {
+  localError.value = null
+  fileInputRef.value?.click()
+}
+
+function handleImageSelection(event: Event) {
+  const target = event.target as HTMLInputElement
+  const files = target.files
+  if (!files || files.length === 0) return
+
+  const fileList = Array.from(files)
+  const remainingSlots = 5 - selectedImages.value.length
+
+  if (fileList.length > remainingSlots) {
+    localError.value = `Chỉ có thể chọn thêm tối đa ${remainingSlots} hình ảnh (tổng tối đa 5 ảnh).`
+    target.value = ''
+    return
+  }
+
+  for (const file of fileList) {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      localError.value = 'Chỉ chấp nhận hình ảnh định dạng JPEG, PNG hoặc WebP.'
+      target.value = ''
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      localError.value = 'Mỗi hình ảnh không được vượt quá 5MB.'
+      target.value = ''
+      return
+    }
+  }
+
+  for (const file of fileList) {
+    selectedImages.value.push(file)
+    selectedImagePreviews.value.push(URL.createObjectURL(file))
+  }
+
+  target.value = ''
+}
+
+function removeImage(index: number) {
+  if (selectedImagePreviews.value[index]) {
+    URL.revokeObjectURL(selectedImagePreviews.value[index])
+  }
+  selectedImages.value.splice(index, 1)
+  selectedImagePreviews.value.splice(index, 1)
+}
+
+function openComicPicker() {
+  localError.value = null
+  isAttachComicModalOpen.value = true
+}
+
+function handleComicSelected(comic: ComicListItem) {
+  selectedComic.value = comic
+}
+
+function removeComic() {
+  selectedComic.value = null
+}
+
 function submitMessage() {
   localError.value = null
-  if (!trimmedText.value) {
+  if (!canSend.value) {
     return
   }
   if (isOverLimit.value) {
@@ -37,14 +117,31 @@ function submitMessage() {
     return
   }
 
-  const messageToSend = text.value
-  text.value = ''
-  emit('send', messageToSend)
+  const payload = {
+    body: text.value,
+    images: selectedImages.value.length > 0 ? [...selectedImages.value] : undefined,
+    comic_id: selectedComic.value?.id,
+    comic_preview: selectedComic.value ? {
+      id: selectedComic.value.id,
+      title: selectedComic.value.title,
+      slug: selectedComic.value.slug,
+      cover_url: selectedComic.value.cover_url,
+      author_name: selectedComic.value.author_name,
+      is_unavailable: false,
+    } : null,
+  }
+
+  clear()
+  emit('send', payload)
 }
 
 function clear() {
   text.value = ''
   localError.value = null
+  selectedImages.value = []
+  selectedImagePreviews.value.forEach((url) => URL.revokeObjectURL(url))
+  selectedImagePreviews.value = []
+  selectedComic.value = null
 }
 
 defineExpose({
@@ -62,7 +159,84 @@ defineExpose({
       </button>
     </div>
 
+    <!-- Hidden file input for image uploads -->
+    <input
+      ref="fileInputRef"
+      type="file"
+      multiple
+      accept="image/jpeg,image/png,image/webp"
+      style="display: none"
+      @change="handleImageSelection"
+    />
+
+    <!-- Attachments Preview Strip -->
+    <div v-if="hasAttachments" class="attachments-strip">
+      <!-- Image Previews -->
+      <div
+        v-for="(previewUrl, index) in selectedImagePreviews"
+        :key="index"
+        class="preview-img-wrapper"
+      >
+        <img :src="previewUrl" alt="Ảnh đính kèm" class="preview-img" />
+        <button
+          type="button"
+          class="btn-remove-attachment"
+          title="Xóa ảnh này"
+          aria-label="Xóa ảnh này"
+          @click="removeImage(index)"
+        >
+          ✕
+        </button>
+      </div>
+
+      <!-- Comic Preview Chip -->
+      <div v-if="selectedComic" class="preview-comic-chip">
+        <div class="comic-chip-cover">
+          <img v-if="selectedComic.cover_url" :src="selectedComic.cover_url" :alt="selectedComic.title" class="chip-img" />
+          <span v-else>📖</span>
+        </div>
+        <div class="comic-chip-info">
+          <span class="chip-badge">Truyện đính kèm</span>
+          <span class="chip-title">{{ selectedComic.title }}</span>
+        </div>
+        <button
+          type="button"
+          class="btn-remove-attachment"
+          title="Bỏ đính kèm truyện"
+          aria-label="Bỏ đính kèm truyện"
+          @click="removeComic"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+
     <div class="composer-box">
+      <!-- Attachment Actions -->
+      <div class="attachment-buttons">
+        <button
+          type="button"
+          class="btn-attach"
+          title="Đính kèm hình ảnh (tối đa 5 ảnh, <= 5MB/ảnh)"
+          aria-label="Đính kèm hình ảnh"
+          :disabled="selectedImages.length >= 5"
+          @click="triggerImagePicker"
+        >
+          📷
+        </button>
+
+        <button
+          type="button"
+          class="btn-attach"
+          title="Đính kèm truyện tranh"
+          aria-label="Đính kèm truyện tranh"
+          :disabled="selectedComic !== null"
+          @click="openComicPicker"
+        >
+          📖
+        </button>
+      </div>
+
       <textarea
         v-model="text"
         rows="1"
@@ -94,6 +268,13 @@ defineExpose({
         </button>
       </div>
     </div>
+
+    <!-- Attach Comic Modal -->
+    <AttachComicModal
+      :is-open="isAttachComicModalOpen"
+      @close="isAttachComicModalOpen = false"
+      @select="handleComicSelected"
+    />
   </div>
 </template>
 
@@ -128,6 +309,105 @@ defineExpose({
   padding: 0 4px;
 }
 
+.attachments-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  overflow-x: auto;
+}
+
+.preview-img-wrapper {
+  position: relative;
+  width: 50px;
+  height: 50px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.preview-comic-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  padding: 4px 8px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  max-width: 240px;
+}
+
+.comic-chip-cover {
+  width: 24px;
+  height: 34px;
+  border-radius: 4px;
+  overflow: hidden;
+  background-color: #0b0f19;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chip-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.comic-chip-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.chip-badge {
+  display: block;
+  font-size: 9px;
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.chip-title {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-remove-attachment {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #ffffff;
+  border: none;
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  font-size: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.preview-comic-chip .btn-remove-attachment {
+  position: static;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
 .composer-box {
   display: flex;
   align-items: flex-end;
@@ -141,6 +421,34 @@ defineExpose({
 
 .composer-box:focus-within {
   border-color: var(--color-primary);
+}
+
+.attachment-buttons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-bottom: 2px;
+}
+
+.btn-attach {
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.btn-attach:hover:not(:disabled) {
+  background-color: var(--color-bg-surface);
+  transform: scale(1.1);
+}
+
+.btn-attach:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 .composer-textarea {
