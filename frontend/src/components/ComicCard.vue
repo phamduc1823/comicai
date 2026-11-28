@@ -12,6 +12,14 @@ const props = withDefaults(defineProps<Props>(), {
   searchMode: 'normal',
 })
 
+const emit = defineEmits<{
+  (e: 'share', comic: ComicListItem): void
+}>()
+
+function handleShareClick() {
+  emit('share', props.comic)
+}
+
 const imageError = ref(false)
 
 const statusInfo = computed(() => {
@@ -220,7 +228,7 @@ const coverSrc = computed(() => {
           </span>
         </div>
 
-        <!-- Footer Stats: Views (Always maintains uniform height even if 0 or null) -->
+        <!-- Footer Stats: Views & Share Button -->
         <div class="comic-stats">
           <span
             v-if="formattedViews"
@@ -243,6 +251,29 @@ const coverSrc = computed(() => {
             <span class="stat-count">{{ formattedViews }}</span>
           </span>
           <span v-else class="stat-item-empty" aria-hidden="true">&nbsp;</span>
+
+          <button
+            type="button"
+            class="btn-card-share"
+            title="Chia sẻ"
+            aria-label="Chia sẻ"
+            @click.stop.prevent="handleShareClick"
+          >
+            <svg
+              class="share-icon-svg"
+              viewBox="0 0 24 24"
+              width="20"
+              height="20"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M13 4v4c-6.575 1.028-9.02 6.788-10 12-.037.206 5.384-5.962 10-6v4l8-7-8-7z" />
+            </svg>
+          </button>
         </div>
       </div>
     </RouterLink>
@@ -599,5 +630,33 @@ const coverSrc = computed(() => {
   display: inline-block;
   height: 14px;
   visibility: hidden;
+}
+
+.btn-card-share {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted, #94a3b8);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  transition: color var(--transition-fast, 0.15s ease), transform var(--transition-fast, 0.15s ease);
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-card-share .share-icon-svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  transition: transform var(--transition-fast, 0.15s ease);
+}
+
+.btn-card-share:hover {
+  color: var(--color-primary, #38bdf8);
+  background: transparent;
+  transform: scale(1.12);
 }
 </style>

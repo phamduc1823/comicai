@@ -3,6 +3,7 @@ import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
 import type { Post } from '@/types/community'
 import { useAuthStore } from '@/stores/auth'
+import { useCommunityFeedStore } from '@/stores/communityFeed'
 import { CommunityService } from '@/services/communityService'
 import { getErrorMessage } from '@/services/httpClient'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
@@ -17,10 +18,20 @@ const emit = defineEmits<{
   (e: 'like-toggle', post: Post): void
   (e: 'edit', post: Post): void
   (e: 'deleted', postId: number): void
+  (e: 'share', post: Post): void
 }>()
 
 const router = useRouter()
 const authStore = useAuthStore()
+const communityFeedStore = useCommunityFeedStore()
+
+function handleDetailNavigation() {
+  communityFeedStore.setLastActivePostId(props.post.id)
+}
+
+function handleShareClick() {
+  emit('share', props.post)
+}
 
 // State
 const isLiking = ref(false)
@@ -152,7 +163,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <article class="post-card" :class="{ 'post-card--detail': isDetailView }">
+  <article
+    :id="'post-' + post.id"
+    :data-post-id="post.id"
+    class="post-card"
+    :class="{ 'post-card--detail': isDetailView }"
+  >
     <!-- Post Header -->
     <header class="post-header">
       <div class="author-info">
@@ -304,11 +320,39 @@ onUnmounted(() => {
           :to="`/posts/${post.id}`"
           class="btn-stat btn-comment"
           title="Xem bình luận bài viết"
+          @click="handleDetailNavigation"
         >
           <span class="stat-icon" aria-hidden="true">💬</span>
           <span class="stat-count">{{ post.comments_count }}</span>
           <span class="stat-label">Bình luận</span>
         </RouterLink>
+
+        <!-- Share Button -->
+        <button
+          type="button"
+          class="btn-stat btn-share"
+          title="Chia sẻ"
+          aria-label="Chia sẻ"
+          @click.stop.prevent="handleShareClick"
+        >
+          <span class="stat-icon" aria-hidden="true">
+            <svg
+              class="share-icon-svg"
+              viewBox="0 0 24 24"
+              width="20"
+              height="20"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M13 4v4c-6.575 1.028-9.02 6.788-10 12-.037.206 5.384-5.962 10-6v4l8-7-8-7z" />
+            </svg>
+          </span>
+          <span class="stat-label">Chia sẻ</span>
+        </button>
       </div>
 
       <!-- Detail link if not already on detail page -->
@@ -316,6 +360,7 @@ onUnmounted(() => {
         v-if="!isDetailView"
         :to="`/posts/${post.id}`"
         class="link-detail"
+        @click="handleDetailNavigation"
       >
         <span>Xem chi tiết</span>
         <span aria-hidden="true">→</span>
@@ -689,6 +734,19 @@ onUnmounted(() => {
 
 .btn-like.is-liked {
   color: var(--color-danger);
+}
+
+.btn-share .share-icon-svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  color: inherit;
+  transition: transform var(--transition-fast, 0.15s ease), color var(--transition-fast, 0.15s ease);
+}
+
+.btn-share:hover .share-icon-svg {
+  transform: scale(1.12);
+  color: var(--color-primary, #38bdf8);
 }
 
 .btn-like.is-liked .stat-icon {
