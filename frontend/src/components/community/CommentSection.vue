@@ -16,6 +16,7 @@ import CommentItem from './CommentItem.vue'
 export interface CommentSectionProps {
   targetType: CommentableType
   targetId: number
+  comicAuthorId?: number | null
 }
 
 interface ActiveReplyTarget {
@@ -496,6 +497,7 @@ onUnmounted(() => {
             :is-admin="authStore.isAdmin"
             :is-liking="likingCommentIds.has(comment.id)"
             :is-deleting="deletingCommentIds.has(comment.id)"
+            :comic-author-id="comicAuthorId"
             @like="handleLikeComment"
             @reply="handleOpenReply"
             @delete="handleDeleteComment"

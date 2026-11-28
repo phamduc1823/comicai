@@ -77,8 +77,24 @@ class CommentController extends Controller
 
         $query->orderBy('created_at', 'desc')->orderBy('id', 'desc');
 
+        $targetAuthorId = match ($type) {
+            'comic' => $target->user_id,
+            'chapter' => $target->comic?->user_id,
+            default => null,
+        };
+
         $perPage = min(max($request->integer('per_page', 15), 1), 50);
         $comments = $query->paginate($perPage);
+
+        // CAI-COMMENT-01: Attach target comic author ID to root comments and replies for context-aware badge
+        $comments->getCollection()->each(function (Comment $comment) use ($targetAuthorId) {
+            $comment->targetAuthorId = $targetAuthorId;
+            if ($comment->relationLoaded('replies')) {
+                $comment->replies->each(function (Comment $reply) use ($targetAuthorId) {
+                    $reply->targetAuthorId = $targetAuthorId;
+                });
+            }
+        });
 
         return CommentResource::collection($comments);
     }
@@ -175,6 +191,13 @@ class CommentController extends Controller
         }
 
         $comment->load(['user:id,name,avatar_path,role']);
+
+        $targetAuthorId = match ($targetType) {
+            'comic' => $target->user_id,
+            'chapter' => $target->comic?->user_id,
+            default => null,
+        };
+        $comment->targetAuthorId = $targetAuthorId;
 
         return (new CommentResource($comment))
             ->response()
@@ -354,6 +377,7 @@ class CommentController extends Controller
             'comic' => Comic::where('id', $id)->where('approval_status', 'approved')->first(),
             'chapter' => Chapter::where('id', $id)
                 ->where('status', 'published')
+                ->with('comic:id,user_id')
                 ->whereHas('comic', fn ($q) => $q->where('approval_status', 'approved'))
                 ->first(),
             default => null,

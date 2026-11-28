@@ -538,6 +538,146 @@ class CommentApiTest extends TestCase
     }
 
     /**
+     * Test CAI-COMMENT-01: Context-aware role badge (is_author) in comments.
+     * - Creator commenting on own comic -> is_author: true
+     * - Creator commenting on another creator's comic -> is_author: false
+     * - Creator commenting on chapter of own comic -> is_author: true
+     * - Creator commenting on chapter of another creator's comic -> is_author: false
+     * - Reader and Admin commenting -> is_author: false
+     * - Reply by author on own comic -> is_author: true
+     * - Post comments -> is_author: false
+     */
+    public function test_cai_comment_01_context_aware_author_badge(): void
+    {
+        $creatorA = User::create([
+            'name' => 'Creator A',
+            'email' => 'creator_a@example.com',
+            'password' => 'Password123!',
+        ]);
+        $creatorA->role = 'creator';
+        $creatorA->save();
+
+        $creatorB = User::create([
+            'name' => 'Creator B',
+            'email' => 'creator_b@example.com',
+            'password' => 'Password123!',
+        ]);
+        $creatorB->role = 'creator';
+        $creatorB->save();
+
+        $comicA = Comic::create([
+            'title' => 'Comic of Creator A',
+            'slug' => 'comic-of-creator-a',
+            'author_name' => 'Creator A',
+            'user_id' => $creatorA->id,
+            'cover_path' => 'covers/comic_a.webp',
+        ]);
+        $comicA->approval_status = 'approved';
+        $comicA->save();
+
+        $chapterA1 = Chapter::create([
+            'comic_id' => $comicA->id,
+            'chapter_number' => 1.0,
+            'title' => 'Chapter A1',
+            'slug' => 'chapter-a1',
+            'status' => 'published',
+        ]);
+
+        // 1. Creator A comments on their own comic -> is_author: true
+        $res1 = $this->actingAs($creatorA)->postJson('/api/comments', [
+            'commentable_type' => 'comic',
+            'commentable_id' => $comicA->id,
+            'content' => 'Bình luận của tác giả truyện này',
+        ]);
+        $res1->assertStatus(201);
+        $this->assertTrue($res1->json('data.is_author'));
+
+        // 2. Creator B comments on Creator A's comic -> is_author: false
+        $res2 = $this->actingAs($creatorB)->postJson('/api/comments', [
+            'commentable_type' => 'comic',
+            'commentable_id' => $comicA->id,
+            'content' => 'Bình luận của một Creator khác',
+        ]);
+        $res2->assertStatus(201);
+        $this->assertFalse($res2->json('data.is_author'));
+
+        // 3. Reader comments on Comic A -> is_author: false
+        $res3 = $this->actingAs($this->reader)->postJson('/api/comments', [
+            'commentable_type' => 'comic',
+            'commentable_id' => $comicA->id,
+            'content' => 'Bình luận của độc giả',
+        ]);
+        $res3->assertStatus(201);
+        $this->assertFalse($res3->json('data.is_author'));
+
+        // 4. Admin comments on Comic A -> is_author: false
+        $res4 = $this->actingAs($this->admin)->postJson('/api/comments', [
+            'commentable_type' => 'comic',
+            'commentable_id' => $comicA->id,
+            'content' => 'Bình luận của admin',
+        ]);
+        $res4->assertStatus(201);
+        $this->assertFalse($res4->json('data.is_author'));
+
+        // 5. Creator A comments on chapter of their own comic -> is_author: true
+        $res5 = $this->actingAs($creatorA)->postJson('/api/comments', [
+            'commentable_type' => 'chapter',
+            'commentable_id' => $chapterA1->id,
+            'content' => 'Tác giả bình luận trong chapter',
+        ]);
+        $res5->assertStatus(201);
+        $this->assertTrue($res5->json('data.is_author'));
+
+        // 6. Creator B comments on chapter of Creator A's comic -> is_author: false
+        $res6 = $this->actingAs($creatorB)->postJson('/api/comments', [
+            'commentable_type' => 'chapter',
+            'commentable_id' => $chapterA1->id,
+            'content' => 'Creator khác bình luận trong chapter',
+        ]);
+        $res6->assertStatus(201);
+        $this->assertFalse($res6->json('data.is_author'));
+
+        // 7. Verify index listing on Comic A returns correct is_author flags
+        $indexRes = $this->getJson("/api/comics/{$comicA->id}/comments");
+        $indexRes->assertStatus(200);
+        $commentsById = collect($indexRes->json('data'))->keyBy('id');
+        $this->assertTrue($commentsById[$res1->json('data.id')]['is_author']);
+        $this->assertFalse($commentsById[$res2->json('data.id')]['is_author']);
+        $this->assertFalse($commentsById[$res3->json('data.id')]['is_author']);
+        $this->assertFalse($commentsById[$res4->json('data.id')]['is_author']);
+
+        // 8. Verify index listing on Chapter A1 returns correct is_author flags
+        $chapterIndexRes = $this->getJson("/api/chapters/{$chapterA1->id}/comments");
+        $chapterIndexRes->assertStatus(200);
+        $chapterCommentsById = collect($chapterIndexRes->json('data'))->keyBy('id');
+        $this->assertTrue($chapterCommentsById[$res5->json('data.id')]['is_author']);
+        $this->assertFalse($chapterCommentsById[$res6->json('data.id')]['is_author']);
+
+        // 9. Reply by author on own comic -> reply has is_author: true
+        $authorReply = $this->actingAs($creatorA)->postJson("/api/comments/{$res3->json('data.id')}/reply", [
+            'content' => 'Tác giả trả lời độc giả',
+        ]);
+        $authorReply->assertStatus(201);
+        $this->assertTrue($authorReply->json('data.is_author'));
+
+        // 10. Reply by another creator on Comic A -> reply has is_author: false
+        $otherReply = $this->actingAs($creatorB)->postJson("/api/comments/{$res3->json('data.id')}/reply", [
+            'content' => 'Creator khác trả lời độc giả',
+        ]);
+        $otherReply->assertStatus(201);
+        $this->assertFalse($otherReply->json('data.is_author'));
+
+        // 11. Comments on posts -> is_author is always false for comic author
+        $postComment = $this->actingAs($creatorA)->postJson('/api/comments', [
+            'commentable_type' => 'post',
+            'commentable_id' => $this->post->id,
+            'content' => 'Creator bình luận trong bài viết cộng đồng',
+        ]);
+        $postComment->assertStatus(201);
+        $this->assertFalse($postComment->json('data.is_author'));
+    }
+
+    /**
      * Test 404 for non-existent comment.
      */
     public function test_404_for_non_existent_comment(): void

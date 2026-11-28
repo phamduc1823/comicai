@@ -21,6 +21,7 @@ export interface CommentItemProps {
   isDeleting?: boolean
   isReply?: boolean
   parentCommentId?: number | null
+  comicAuthorId?: number | null
 }
 
 const props = withDefaults(defineProps<CommentItemProps>(), {
@@ -31,6 +32,7 @@ const props = withDefaults(defineProps<CommentItemProps>(), {
   isDeleting: false,
   isReply: false,
   parentCommentId: null,
+  comicAuthorId: null,
 })
 
 const emit = defineEmits<{
@@ -56,6 +58,17 @@ const userInitial = computed(() => {
 // Permissions check
 const isAuthor = computed(() => {
   return !!(props.currentUser && props.currentUser.id === props.comment.user.id)
+})
+
+// Context-aware comic author check (CAI-COMMENT-01)
+const isComicAuthor = computed(() => {
+  if (typeof props.comment.is_author === 'boolean') {
+    return props.comment.is_author
+  }
+  if (props.comicAuthorId != null) {
+    return props.comment.user.id === props.comicAuthorId
+  }
+  return false
 })
 
 const canDelete = computed(() => {
@@ -186,18 +199,11 @@ function handleConfirmDelete() {
               <span class="author-name">{{ comment.user.name }}</span>
             </RouterLink>
 
-            <!-- Role Badges -->
+            <!-- Context-aware Comic Author Badge (CAI-COMMENT-01) -->
             <span
-              v-if="comment.user.role === 'admin'"
-              class="role-badge role-badge--admin"
-              title="Quản trị viên"
-            >
-              Admin 🛡️
-            </span>
-            <span
-              v-else-if="comment.user.role === 'creator'"
+              v-if="isComicAuthor"
               class="role-badge role-badge--creator"
-              title="Tác giả sáng tác"
+              title="Tác giả truyện"
             >
               Tác giả ✍️
             </span>
@@ -297,6 +303,7 @@ function handleConfirmDelete() {
           :current-user="currentUser"
           :is-authenticated="isAuthenticated"
           :is-admin="isAdmin"
+          :comic-author-id="comicAuthorId"
           @like="(id) => emit('like', id)"
           @reply="(rootId, author) => emit('reply', rootId, author)"
           @delete="(id) => emit('delete', id)"

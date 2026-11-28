@@ -34,6 +34,7 @@ class CommentResource extends JsonResource
             'likes_count' => (int) $this->likes_count,
             'replies_count' => (int) $this->replies_count,
             'is_liked' => $isLiked,
+            'is_author' => (bool) $this->isAuthorOfTarget(),
             'user' => [
                 'id' => $this->user->id,
                 'name' => $this->user->name,

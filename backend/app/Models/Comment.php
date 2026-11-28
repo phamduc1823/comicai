@@ -108,6 +108,45 @@ class Comment extends Model
     }
 
     /**
+     * Target comic/entity author ID set dynamically by controller to avoid N+1 queries.
+     *
+     * @var int|null
+     */
+    public ?int $targetAuthorId = null;
+
+    /**
+     * Check if the comment author is the creator/author of the target comic.
+     */
+    public function isAuthorOfTarget(): bool
+    {
+        if ($this->targetAuthorId !== null) {
+            return (int) $this->user_id === (int) $this->targetAuthorId;
+        }
+
+        // Context-aware fallback: only comics and chapters have comic authors
+        if ($this->commentable_type === 'comic') {
+            if ($this->relationLoaded('commentable') && $this->commentable) {
+                return (int) $this->user_id === (int) $this->commentable->user_id;
+            }
+            $ownerId = Comic::where('id', $this->commentable_id)->value('user_id');
+            return $ownerId !== null && (int) $this->user_id === (int) $ownerId;
+        }
+
+        if ($this->commentable_type === 'chapter') {
+            if ($this->relationLoaded('commentable') && $this->commentable) {
+                $comicUserId = $this->commentable->relationLoaded('comic')
+                    ? $this->commentable->comic?->user_id
+                    : $this->commentable->comic()->value('user_id');
+                return $comicUserId !== null && (int) $this->user_id === (int) $comicUserId;
+            }
+            $chapter = Chapter::where('id', $this->commentable_id)->with('comic:id,user_id')->first();
+            return $chapter && $chapter->comic && (int) $this->user_id === (int) $chapter->comic->user_id;
+        }
+
+        return false;
+    }
+
+    /**
      * Check if this is a top-level root comment.
      */
     public function isRoot(): bool
