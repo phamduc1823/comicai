@@ -606,4 +606,216 @@ class ComicCatalogApiTest extends TestCase
         $this->assertCount(2, $resShow->json('data.genres'));
         $this->assertCount(4, $resShow->json('data.tags'));
     }
+
+    /**
+     * 20. CAI-CATALOG-04: Test multi-select genres with OR logic in group.
+     */
+    public function test_comics_index_multi_select_genres_with_or_logic(): void
+    {
+        $genreA = Genre::create(['name' => 'Bí ẩn', 'slug' => 'bi-an']);
+        $genreB = Genre::create(['name' => 'Đời thường', 'slug' => 'doi-thuong']);
+        $genreC = Genre::create(['name' => 'Hành động', 'slug' => 'hanh-dong']);
+
+        $c1 = $this->createComic(['title' => 'Truyện Bí Ẩn', 'slug' => 'comic-bi-an']);
+        $c1->genres()->attach($genreA->id);
+
+        $c2 = $this->createComic(['title' => 'Truyện Đời Thường', 'slug' => 'comic-doi-thuong']);
+        $c2->genres()->attach($genreB->id);
+
+        $c3 = $this->createComic(['title' => 'Truyện Hành Động', 'slug' => 'comic-hanh-dong']);
+        $c3->genres()->attach($genreC->id);
+
+        // Comma-separated query
+        $resComma = $this->getJson('/api/comics?genre=bi-an,doi-thuong');
+        $resComma->assertOk();
+        $resComma->assertJsonCount(2, 'data');
+        $slugs = array_column($resComma->json('data'), 'slug');
+        $this->assertContains('comic-bi-an', $slugs);
+        $this->assertContains('comic-doi-thuong', $slugs);
+        $this->assertNotContains('comic-hanh-dong', $slugs);
+
+        // Array notation query
+        $resArray = $this->getJson('/api/comics?genres[]=bi-an&genres[]=doi-thuong');
+        $resArray->assertOk();
+        $resArray->assertJsonCount(2, 'data');
+    }
+
+    /**
+     * 21. CAI-CATALOG-04: Test multi-select tags with OR logic in group.
+     */
+    public function test_comics_index_multi_select_tags_with_or_logic(): void
+    {
+        $t1 = Tag::create(['name' => 'Trọng sinh', 'slug' => 'trong-sinh']);
+        $t2 = Tag::create(['name' => 'Hệ thống', 'slug' => 'he-thong']);
+        $t3 = Tag::create(['name' => 'Xuyên không', 'slug' => 'xuyen-khong']);
+
+        $c1 = $this->createComic(['slug' => 'comic-tag-1']);
+        $c1->tags()->attach($t1->id);
+
+        $c2 = $this->createComic(['slug' => 'comic-tag-2']);
+        $c2->tags()->attach($t2->id);
+
+        $c3 = $this->createComic(['slug' => 'comic-tag-3']);
+        $c3->tags()->attach($t3->id);
+
+        $res = $this->getJson('/api/comics?tags[]=trong-sinh&tags[]=he-thong');
+        $res->assertOk();
+        $res->assertJsonCount(2, 'data');
+        $slugs = array_column($res->json('data'), 'slug');
+        $this->assertContains('comic-tag-1', $slugs);
+        $this->assertContains('comic-tag-2', $slugs);
+        $this->assertNotContains('comic-tag-3', $slugs);
+    }
+
+    /**
+     * 22. CAI-CATALOG-04: Test multi-select status with OR logic in group.
+     */
+    public function test_comics_index_multi_select_status_with_or_logic(): void
+    {
+        $c1 = $this->createComic(['slug' => 'comic-ongoing', 'status' => 'ongoing']);
+        $c2 = $this->createComic(['slug' => 'comic-completed', 'status' => 'completed']);
+        $c3 = $this->createComic(['slug' => 'comic-hiatus', 'status' => 'hiatus']);
+
+        $res = $this->getJson('/api/comics?status=ongoing,completed');
+        $res->assertOk();
+        $res->assertJsonCount(2, 'data');
+        $slugs = array_column($res->json('data'), 'slug');
+        $this->assertContains('comic-ongoing', $slugs);
+        $this->assertContains('comic-completed', $slugs);
+        $this->assertNotContains('comic-hiatus', $slugs);
+
+        // Empty status: returns all valid statuses
+        $resAll = $this->getJson('/api/comics');
+        $resAll->assertOk();
+        $resAll->assertJsonCount(3, 'data');
+    }
+
+    /**
+     * 23. CAI-CATALOG-04: Test multi-select sort with priority order.
+     */
+    public function test_comics_index_multi_select_sort_priority_order(): void
+    {
+        $baseDate = now()->subDays(10);
+        $c1 = $this->createComic(['slug' => 'c1', 'created_at' => $baseDate->copy()->addDays(2), 'views_count' => 100]);
+        $c2 = $this->createComic(['slug' => 'c2', 'created_at' => $baseDate->copy()->addDays(1), 'views_count' => 500]);
+        $c3 = $this->createComic(['slug' => 'c3', 'created_at' => $baseDate->copy()->addDays(2), 'views_count' => 300]);
+
+        // Priority 1: latest (c1 and c3 tie), Priority 2: views (c3 > c1) -> c3, c1, c2
+        $resLatestViews = $this->getJson('/api/comics?sort=latest,views');
+        $resLatestViews->assertOk();
+        $this->assertSame(['c3', 'c1', 'c2'], array_column($resLatestViews->json('data'), 'slug'));
+
+        // Priority 1: views (c2: 500 > c3: 300 > c1: 100) -> c2, c3, c1
+        $resViewsLatest = $this->getJson('/api/comics?sort=views,latest');
+        $resViewsLatest->assertOk();
+        $this->assertSame(['c2', 'c3', 'c1'], array_column($resViewsLatest->json('data'), 'slug'));
+    }
+
+    /**
+     * 24. CAI-CATALOG-04: Test combined filter groups with AND logic between groups.
+     */
+    public function test_comics_index_combined_filter_groups_with_and_logic(): void
+    {
+        $gBian = Genre::create(['name' => 'Bí ẩn', 'slug' => 'bi-an']);
+        $gDoithuong = Genre::create(['name' => 'Đời thường', 'slug' => 'doi-thuong']);
+        $gHanhdong = Genre::create(['name' => 'Hành động', 'slug' => 'hanh-dong']);
+
+        $tTrongsinh = Tag::create(['name' => 'Trọng sinh', 'slug' => 'trong-sinh']);
+        $tXuyenkhong = Tag::create(['name' => 'Xuyên không', 'slug' => 'xuyen-khong']);
+
+        // Comic 1: Bí ẩn + Trọng sinh + Ongoing (MATCH)
+        $c1 = $this->createComic(['slug' => 'match-1', 'status' => 'ongoing']);
+        $c1->genres()->attach($gBian->id);
+        $c1->tags()->attach($tTrongsinh->id);
+
+        // Comic 2: Đời thường + Trọng sinh + Completed (MATCH)
+        $c2 = $this->createComic(['slug' => 'match-2', 'status' => 'completed']);
+        $c2->genres()->attach($gDoithuong->id);
+        $c2->tags()->attach($tTrongsinh->id);
+
+        // Comic 3: Bí ẩn + Xuyên không + Ongoing (FAILS Tag)
+        $c3 = $this->createComic(['slug' => 'no-match-tag', 'status' => 'ongoing']);
+        $c3->genres()->attach($gBian->id);
+        $c3->tags()->attach($tXuyenkhong->id);
+
+        // Comic 4: Hành động + Trọng sinh + Ongoing (FAILS Genre)
+        $c4 = $this->createComic(['slug' => 'no-match-genre', 'status' => 'ongoing']);
+        $c4->genres()->attach($gHanhdong->id);
+        $c4->tags()->attach($tTrongsinh->id);
+
+        // Comic 5: Bí ẩn + Trọng sinh + Hiatus (FAILS Status)
+        $c5 = $this->createComic(['slug' => 'no-match-status', 'status' => 'hiatus']);
+        $c5->genres()->attach($gBian->id);
+        $c5->tags()->attach($tTrongsinh->id);
+
+        $res = $this->getJson('/api/comics?genre=bi-an,doi-thuong&tag=trong-sinh&status=ongoing,completed');
+        $res->assertOk();
+        $res->assertJsonCount(2, 'data');
+        $slugs = array_column($res->json('data'), 'slug');
+        $this->assertContains('match-1', $slugs);
+        $this->assertContains('match-2', $slugs);
+    }
+
+    /**
+     * 25. CAI-CATALOG-04: Test combinations with no results return 0 items without fallback.
+     */
+    public function test_comics_index_multi_filter_no_match_returns_empty_without_fallback(): void
+    {
+        $this->createComic(['slug' => 'some-comic', 'status' => 'ongoing']);
+
+        $res = $this->getJson('/api/comics?genre=non-existent-genre&tag=non-existent-tag');
+        $res->assertOk();
+        $res->assertJsonCount(0, 'data');
+        $this->assertSame(0, $res->json('meta.total'));
+    }
+
+    /**
+     * 26. CAI-CATALOG-04: Test rejection of invalid sort or status values.
+     */
+    public function test_comics_index_rejects_invalid_sort_and_status(): void
+    {
+        $resBadStatus = $this->getJson('/api/comics?status=invalid_status');
+        $resBadStatus->assertStatus(422);
+
+        $resBadStatusArray = $this->getJson('/api/comics?statuses[]=ongoing&statuses[]=hacked');
+        $resBadStatusArray->assertStatus(422);
+
+        $resBadSort = $this->getJson('/api/comics?sort=arbitrary_column');
+        $resBadSort->assertStatus(422);
+
+        $resBadSortArray = $this->getJson('/api/comics?sorts[]=views&sorts[]=sleep(5)');
+        $resBadSortArray->assertStatus(422);
+    }
+
+    /**
+     * 27. CAI-HOME-04: Test filtering by is_featured and featured alias.
+     */
+    public function test_comics_index_filters_by_is_featured_and_featured_alias(): void
+    {
+        $featuredComic = $this->createComic(['title' => 'Truyện Nổi Bật', 'slug' => 'comic-featured', 'is_featured' => true]);
+        $regularComic = $this->createComic(['title' => 'Truyện Bình Thường', 'slug' => 'comic-regular', 'is_featured' => false]);
+
+        // Filter with is_featured=1
+        $res1 = $this->getJson('/api/comics?is_featured=1');
+        $res1->assertOk();
+        $res1->assertJsonCount(1, 'data');
+        $this->assertSame('comic-featured', $res1->json('data.0.slug'));
+
+        // Filter with featured=1 alias
+        $res2 = $this->getJson('/api/comics?featured=1');
+        $res2->assertOk();
+        $res2->assertJsonCount(1, 'data');
+        $this->assertSame('comic-featured', $res2->json('data.0.slug'));
+
+        // Filter with is_featured=0
+        $res3 = $this->getJson('/api/comics?is_featured=0');
+        $res3->assertOk();
+        $res3->assertJsonCount(1, 'data');
+        $this->assertSame('comic-regular', $res3->json('data.0.slug'));
+
+        // Without filter returns both
+        $resAll = $this->getJson('/api/comics');
+        $resAll->assertOk();
+        $this->assertGreaterThanOrEqual(2, $resAll->json('meta.total'));
+    }
 }

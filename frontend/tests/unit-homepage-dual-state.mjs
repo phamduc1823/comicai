@@ -18,14 +18,13 @@ test('CAI-HOME-02: Homepage Dual State & 5 Discovery Sections Suite', async (t) 
     'utf-8'
   )
 
-  await t.test('1. Exact order of 5 Discovery Sections in State A', () => {
+  await t.test('1. Exact order of 4 Discovery Sections in State A (CAI-HOME-04)', () => {
     // Check headings presence and exact sequence
     const order = [
+      'Top truyện tuần',
+      'Truyện nổi bật',
       'Truyện mới cập nhật',
       'Truyện hoàn thành',
-      'Top truyện tuần',
-      'Truyện mới đăng',
-      'Truyện nổi bật',
     ]
 
     let lastIndex = -1
@@ -38,6 +37,13 @@ test('CAI-HOME-02: Homepage Dual State & 5 Discovery Sections Suite', async (t) 
       )
       lastIndex = idx
     }
+
+    // Section "Truyện mới đăng" must NOT exist
+    assert.strictEqual(
+      discoveryFile.includes('Truyện mới đăng'),
+      false,
+      'Section "Truyện mới đăng" must be removed completely'
+    )
   })
 
   await t.test('2. Dual-State Toggle between State A and State B in HomePage.vue', () => {

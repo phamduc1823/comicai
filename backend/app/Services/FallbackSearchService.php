@@ -49,7 +49,11 @@ class FallbackSearchService implements AiSearchServiceInterface
 
         // Pre-filtering: Comic status (exclude 'draft' by default, or match explicit filter)
         if (! empty($filters['status'])) {
-            $baseQuery->where('status', $filters['status']);
+            if (is_array($filters['status'])) {
+                $baseQuery->whereIn('status', $filters['status']);
+            } else {
+                $baseQuery->where('status', $filters['status']);
+            }
         } else {
             $baseQuery->where('status', '!=', 'draft');
         }
@@ -62,7 +66,9 @@ class FallbackSearchService implements AiSearchServiceInterface
         // Pre-filtering: Genre filter (by slug or id)
         if (! empty($filters['genre'])) {
             $baseQuery->whereHas('genres', function (Builder $q) use ($filters) {
-                if (is_numeric($filters['genre'])) {
+                if (is_array($filters['genre'])) {
+                    $q->whereIn('genres.slug', $filters['genre']);
+                } elseif (is_numeric($filters['genre'])) {
                     $q->where('genres.id', (int) $filters['genre']);
                 } else {
                     $q->where('genres.slug', $filters['genre']);
@@ -73,7 +79,9 @@ class FallbackSearchService implements AiSearchServiceInterface
         // Pre-filtering: Tag filter (by slug or id)
         if (! empty($filters['tag'])) {
             $baseQuery->whereHas('tags', function (Builder $q) use ($filters) {
-                if (is_numeric($filters['tag'])) {
+                if (is_array($filters['tag'])) {
+                    $q->whereIn('tags.slug', $filters['tag']);
+                } elseif (is_numeric($filters['tag'])) {
                     $q->where('tags.id', (int) $filters['tag']);
                 } else {
                     $q->where('tags.slug', $filters['tag']);

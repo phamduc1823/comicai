@@ -22,12 +22,12 @@ return [
 
     'gemini' => [
         'api_key' => env('GEMINI_API_KEY'),
-        'model' => env('GEMINI_MODEL', 'gemini-2.5-flash'),
+        'model' => env('GEMINI_MODEL', 'gemini-3.5-flash'),
         'embedding_model' => env('GEMINI_EMBEDDING_MODEL', 'gemini-embedding-001'),
         'embedding_dimensions' => (int) env('GEMINI_EMBEDDING_DIMENSIONS', 768),
         'timeout' => (int) env('AI_REQUEST_TIMEOUT', 8),
-
-    'query_embedding_cache_ttl' => (int) env('AI_QUERY_EMBEDDING_CACHE_TTL', 86400 * 7),
+        'verify_ssl' => env('AI_VERIFY_SSL', null),
+        'query_embedding_cache_ttl' => (int) env('AI_QUERY_EMBEDDING_CACHE_TTL', 86400 * 7),
         'base_url' => env('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta'),
     ],
 

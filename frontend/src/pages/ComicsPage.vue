@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ComicCard from '@/components/ComicCard.vue'
+import ShareRecipientModal from '@/components/chat/ShareRecipientModal.vue'
 import { CatalogService } from '@/services/catalogService'
 import { getErrorMessage } from '@/services/httpClient'
+import { useAuthStore } from '@/stores/auth'
 import type {
   ComicListItem,
   ComicSortOption,
@@ -16,6 +18,23 @@ import type {
 
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
+
+// Share state
+const sharingComic = ref<ComicListItem | null>(null)
+const isShareModalOpen = ref(false)
+
+function handleShareComic(comic: ComicListItem) {
+  if (!authStore.isAuthenticated) {
+    router.push({
+      path: '/login',
+      query: { redirect: route.fullPath },
+    })
+    return
+  }
+  sharingComic.value = comic
+  isShareModalOpen.value = true
+}
 
 // Data states
 const comics = ref<ComicListItem[]>([])
@@ -28,15 +47,22 @@ const isLoading = ref(true)
 const isFilterOptionsLoading = ref(true)
 const errorMessage = ref<string | null>(null)
 
-// Filter states (bound to UI)
+// Filter states (bound to UI supporting multi-select)
 const searchInput = ref('')
 const searchMode = ref<'normal' | 'ai'>('normal')
 const aiFallbackNotice = ref<string | null>(null)
-const selectedGenre = ref('')
-const selectedTag = ref('')
-const selectedStatus = ref<ComicStatus | ''>('')
-const selectedSort = ref<ComicSortOption>('latest')
+const selectedGenres = ref<string[]>([])
+const selectedTags = ref<string[]>([])
+const selectedStatuses = ref<ComicStatus[]>([])
+const selectedSorts = ref<ComicSortOption[]>([])
+const isFeatured = ref(false)
 const currentPage = ref(1)
+
+// Dropdown UI states
+type DropdownKey = 'genre' | 'tag' | 'status' | 'sort' | null
+const activeDropdown = ref<DropdownKey>(null)
+const genreSearchQuery = ref('')
+const tagSearchQuery = ref('')
 
 // Race-condition guard
 let latestRequestId = 0
@@ -49,26 +75,139 @@ const sortOptions: { value: ComicSortOption; label: string }[] = [
 ]
 
 // Status options definition
-const statusOptions: { value: ComicStatus | ''; label: string }[] = [
-  { value: '', label: 'Tất cả trạng thái' },
+const statusFilterOptions: { value: ComicStatus; label: string }[] = [
   { value: 'ongoing', label: 'Đang tiến hành' },
   { value: 'completed', label: 'Đã hoàn thành' },
   { value: 'hiatus', label: 'Tạm ngưng' },
 ]
 
+// Computed: filtered genres and tags inside dropdown search
+const filteredGenres = computed(() => {
+  const q = genreSearchQuery.value.trim().toLowerCase()
+  if (!q) return genres.value
+  return genres.value.filter(
+    (g) => g.name.toLowerCase().includes(q) || g.slug.toLowerCase().includes(q)
+  )
+})
+
+const filteredTags = computed(() => {
+  const q = tagSearchQuery.value.trim().toLowerCase()
+  if (!q) return tags.value
+  return tags.value.filter(
+    (t) => t.name.toLowerCase().includes(q) || t.slug.toLowerCase().includes(q)
+  )
+})
+
+// Trigger labels for dropdown buttons
+const genreTriggerLabel = computed(() => {
+  if (selectedGenres.value.length === 0) return 'Tất cả thể loại'
+  if (selectedGenres.value.length === 1) {
+    const g = genres.value.find((item) => item.slug === selectedGenres.value[0])
+    return g ? g.name : selectedGenres.value[0]
+  }
+  return `Thể loại (${selectedGenres.value.length})`
+})
+
+const tagTriggerLabel = computed(() => {
+  if (selectedTags.value.length === 0) return 'Tất cả tags'
+  if (selectedTags.value.length === 1) {
+    const t = tags.value.find((item) => item.slug === selectedTags.value[0])
+    return t ? t.name : selectedTags.value[0]
+  }
+  return `Tag (${selectedTags.value.length})`
+})
+
+const statusTriggerLabel = computed(() => {
+  if (selectedStatuses.value.length === 0) return 'Tất cả trạng thái'
+  if (selectedStatuses.value.length === 1) {
+    const opt = statusFilterOptions.find((item) => item.value === selectedStatuses.value[0])
+    return opt ? opt.label : selectedStatuses.value[0]
+  }
+  return `Trạng thái (${selectedStatuses.value.length})`
+})
+
+const sortTriggerLabel = computed(() => {
+  if (selectedSorts.value.length === 0) return 'Mặc định (Mới cập nhật)'
+  if (selectedSorts.value.length === 1) {
+    const opt = sortOptions.find((item) => item.value === selectedSorts.value[0])
+    return opt ? opt.label : selectedSorts.value[0]
+  }
+  return `Sắp xếp (${selectedSorts.value.length})`
+})
+
 // Computed: has any active non-default filter
 const hasActiveFilters = computed(() => {
   return (
     searchInput.value.trim() !== '' ||
-    selectedGenre.value !== '' ||
-    selectedTag.value !== '' ||
-    selectedStatus.value !== '' ||
-    selectedSort.value !== 'latest' ||
+    selectedGenres.value.length > 0 ||
+    selectedTags.value.length > 0 ||
+    selectedStatuses.value.length > 0 ||
+    selectedSorts.value.length > 0 ||
+    isFeatured.value ||
     currentPage.value > 1
   )
 })
 
-// Computed: Active filter chips for quick removal
+// Dropdown visibility toggles
+function toggleDropdown(key: DropdownKey) {
+  activeDropdown.value = activeDropdown.value === key ? null : key
+}
+
+function closeDropdowns() {
+  activeDropdown.value = null
+}
+
+function onDocumentClick(event: MouseEvent) {
+  const target = event.target as HTMLElement | null
+  if (!target || !target.closest('.filter-group')) {
+    closeDropdowns()
+  }
+}
+
+// Multi-select toggles
+function toggleGenre(slug: string) {
+  if (selectedGenres.value.includes(slug)) {
+    selectedGenres.value = selectedGenres.value.filter((s) => s !== slug)
+  } else {
+    selectedGenres.value = [...selectedGenres.value, slug]
+  }
+  applyFilters({ resetPage: true })
+}
+
+function toggleTag(slug: string) {
+  if (selectedTags.value.includes(slug)) {
+    selectedTags.value = selectedTags.value.filter((s) => s !== slug)
+  } else {
+    selectedTags.value = [...selectedTags.value, slug]
+  }
+  applyFilters({ resetPage: true })
+}
+
+function toggleStatus(val: ComicStatus) {
+  if (selectedStatuses.value.includes(val)) {
+    selectedStatuses.value = selectedStatuses.value.filter((s) => s !== val)
+  } else {
+    selectedStatuses.value = [...selectedStatuses.value, val]
+  }
+  applyFilters({ resetPage: true })
+}
+
+function toggleSort(val: ComicSortOption) {
+  if (selectedSorts.value.includes(val)) {
+    selectedSorts.value = selectedSorts.value.filter((s) => s !== val)
+  } else {
+    // Append in order of user selection -> priority
+    selectedSorts.value = [...selectedSorts.value, val]
+  }
+  applyFilters({ resetPage: true })
+}
+
+function toggleFeatured() {
+  isFeatured.value = !isFeatured.value
+  applyFilters({ resetPage: true })
+}
+
+// Computed: Active filter chips for individual removal
 const activeFilterChips = computed(() => {
   const chips: { key: string; label: string; onRemove: () => void }[] = []
 
@@ -83,37 +222,56 @@ const activeFilterChips = computed(() => {
     })
   }
 
-  if (selectedGenre.value) {
-    const g = genres.value.find((item) => item.slug === selectedGenre.value)
+  for (const slug of selectedGenres.value) {
+    const g = genres.value.find((item) => item.slug === slug)
     chips.push({
-      key: 'genre',
-      label: `Thể loại: ${g ? g.name : selectedGenre.value}`,
+      key: `genre-${slug}`,
+      label: `Thể loại: ${g ? g.name : slug}`,
       onRemove: () => {
-        selectedGenre.value = ''
-        applyFilters({ resetPage: true })
+        toggleGenre(slug)
       },
     })
   }
 
-  if (selectedTag.value) {
-    const t = tags.value.find((item) => item.slug === selectedTag.value)
+  for (const slug of selectedTags.value) {
+    const t = tags.value.find((item) => item.slug === slug)
     chips.push({
-      key: 'tag',
-      label: `Tag: ${t ? t.name : selectedTag.value}`,
+      key: `tag-${slug}`,
+      label: `Tag: ${t ? t.name : slug}`,
       onRemove: () => {
-        selectedTag.value = ''
-        applyFilters({ resetPage: true })
+        toggleTag(slug)
       },
     })
   }
 
-  if (selectedStatus.value) {
-    const opt = statusOptions.find((item) => item.value === selectedStatus.value)
+  for (const val of selectedStatuses.value) {
+    const opt = statusFilterOptions.find((item) => item.value === val)
     chips.push({
-      key: 'status',
-      label: `Trạng thái: ${opt ? opt.label : selectedStatus.value}`,
+      key: `status-${val}`,
+      label: `Trạng thái: ${opt ? opt.label : val}`,
       onRemove: () => {
-        selectedStatus.value = ''
+        toggleStatus(val)
+      },
+    })
+  }
+
+  selectedSorts.value.forEach((val, index) => {
+    const opt = sortOptions.find((item) => item.value === val)
+    chips.push({
+      key: `sort-${val}`,
+      label: `Sắp xếp: ${opt ? opt.label : val} (${index + 1})`,
+      onRemove: () => {
+        toggleSort(val)
+      },
+    })
+  })
+
+  if (isFeatured.value) {
+    chips.push({
+      key: 'featured',
+      label: 'Truyện nổi bật',
+      onRemove: () => {
+        isFeatured.value = false
         applyFilters({ resetPage: true })
       },
     })
@@ -149,33 +307,40 @@ async function loadFilterOptions() {
  */
 function parseRouteQuery() {
   const q = typeof route.query.q === 'string' ? route.query.q.trim() : ''
-  const genre = typeof route.query.genre === 'string' ? route.query.genre.trim() : ''
-  const tag = typeof route.query.tag === 'string' ? route.query.tag.trim() : ''
-  const statusRaw = typeof route.query.status === 'string' ? route.query.status.trim() : ''
-  const sortRaw = typeof route.query.sort === 'string' ? route.query.sort.trim() : ''
-  const pageRaw = parseInt(String(route.query.page), 10)
-
-  // Validate status
-  const validStatus: (ComicStatus | '')[] = ['ongoing', 'completed', 'hiatus']
-  const status = validStatus.includes(statusRaw as ComicStatus) ? (statusRaw as ComicStatus) : ''
-
-  // Validate sort
-  const validSort: ComicSortOption[] = ['latest', 'views', 'follows']
-  const sort = validSort.includes(sortRaw as ComicSortOption) ? (sortRaw as ComicSortOption) : 'latest'
-
-  // Validate page
-  const page = !isNaN(pageRaw) && pageRaw > 0 ? pageRaw : 1
-
-  // Validate mode
   const modeRaw = typeof route.query.mode === 'string' ? route.query.mode.trim() : ''
   searchMode.value = modeRaw === 'ai' ? 'ai' : 'normal'
-
   searchInput.value = q
-  selectedGenre.value = genre
-  selectedTag.value = tag
-  selectedStatus.value = status
-  selectedSort.value = sort
-  currentPage.value = page
+
+  const parseArray = (val: unknown): string[] => {
+    if (Array.isArray(val)) {
+      return val.map((v) => String(v).trim()).filter(Boolean)
+    }
+    if (typeof val === 'string' && val.trim()) {
+      return val.split(',').map((v) => v.trim()).filter(Boolean)
+    }
+    return []
+  }
+
+  selectedGenres.value = parseArray(route.query.genres || route.query.genre)
+  selectedTags.value = parseArray(route.query.tags || route.query.tag)
+
+  const rawStatuses = parseArray(route.query.statuses || route.query.status)
+  const validStatus: ComicStatus[] = ['ongoing', 'completed', 'hiatus']
+  selectedStatuses.value = rawStatuses.filter((s): s is ComicStatus =>
+    validStatus.includes(s as ComicStatus)
+  )
+
+  const rawSorts = parseArray(route.query.sorts || route.query.sort)
+  const validSort: ComicSortOption[] = ['latest', 'views', 'follows']
+  selectedSorts.value = rawSorts.filter((s): s is ComicSortOption =>
+    validSort.includes(s as ComicSortOption)
+  )
+
+  const rawFeatured = route.query.featured ?? route.query.is_featured
+  isFeatured.value = rawFeatured === '1' || rawFeatured === 'true'
+
+  const pageRaw = parseInt(String(route.query.page), 10)
+  currentPage.value = !isNaN(pageRaw) && pageRaw > 0 ? pageRaw : 1
 }
 
 /**
@@ -210,9 +375,9 @@ async function fetchComics() {
       const response = await CatalogService.aiSearch({
         q: searchInput.value.trim(),
         mode: 'ai',
-        genre: selectedGenre.value || undefined,
-        tag: selectedTag.value || undefined,
-        status: selectedStatus.value || undefined,
+        genre: selectedGenres.value.length > 0 ? selectedGenres.value.join(',') : undefined,
+        tag: selectedTags.value.length > 0 ? selectedTags.value.join(',') : undefined,
+        status: selectedStatuses.value.length > 0 ? selectedStatuses.value.join(',') : undefined,
         limit: 18,
       })
 
@@ -253,22 +418,24 @@ async function fetchComics() {
   if (searchInput.value.trim()) {
     params.q = searchInput.value.trim()
   }
-  if (selectedGenre.value) {
-    params.genre = selectedGenre.value
+  if (selectedGenres.value.length > 0) {
+    params.genre = selectedGenres.value.join(',')
   }
-  if (selectedTag.value) {
-    params.tag = selectedTag.value
+  if (selectedTags.value.length > 0) {
+    params.tag = selectedTags.value.join(',')
   }
-  if (selectedStatus.value) {
-    params.status = selectedStatus.value as ComicStatus
+  if (selectedStatuses.value.length > 0) {
+    params.status = selectedStatuses.value.join(',')
   }
-  if (selectedSort.value && selectedSort.value !== 'latest') {
-    params.sort = selectedSort.value
+  if (selectedSorts.value.length > 0) {
+    params.sort = selectedSorts.value.join(',')
+  }
+  if (isFeatured.value) {
+    params.is_featured = 1
   }
 
   try {
     const response = await CatalogService.getComics(params)
-    // Only apply if this is still the latest request
     if (requestId === latestRequestId) {
       comics.value = response.data || []
       paginationMeta.value = response.meta || null
@@ -295,18 +462,14 @@ function applyFilters(options: { resetPage?: boolean } = {}) {
   currentPage.value = newPage
 
   const query: Record<string, string> = {}
-
   const cleanQ = searchInput.value.trim()
   if (cleanQ) query.q = cleanQ
-
-  if (searchMode.value === 'ai') {
-    query.mode = 'ai'
-  }
-
-  if (selectedGenre.value) query.genre = selectedGenre.value
-  if (selectedTag.value) query.tag = selectedTag.value
-  if (selectedStatus.value) query.status = selectedStatus.value
-  if (selectedSort.value && selectedSort.value !== 'latest') query.sort = selectedSort.value
+  if (searchMode.value === 'ai') query.mode = 'ai'
+  if (selectedGenres.value.length > 0) query.genre = selectedGenres.value.join(',')
+  if (selectedTags.value.length > 0) query.tag = selectedTags.value.join(',')
+  if (selectedStatuses.value.length > 0) query.status = selectedStatuses.value.join(',')
+  if (selectedSorts.value.length > 0) query.sort = selectedSorts.value.join(',')
+  if (isFeatured.value) query.featured = '1'
   if (newPage > 1) query.page = String(newPage)
 
   // Compare with current query to avoid duplicate navigation
@@ -318,7 +481,6 @@ function applyFilters(options: { resetPage?: boolean } = {}) {
   if (!isQueryEqual) {
     router.push({ path: '/comics', query })
   } else {
-    // If query didn't change (e.g. initial or identical), fetch directly
     fetchComics()
   }
 }
@@ -330,19 +492,17 @@ function submitSearch() {
   if (isLoading.value) return
 
   const cleanQuery = searchInput.value.trim()
-  if (!cleanQuery) {
-    if (searchMode.value === 'ai') return
-    if (!selectedGenre.value && !selectedTag.value && !selectedStatus.value && selectedSort.value === 'latest' && comics.value.length > 0) return
-  }
+  if (!cleanQuery && searchMode.value === 'ai') return
 
   applyFilters({ resetPage: true })
 }
 
 /**
- * Clear search input only, without triggering search query.
+ * Clear search input only.
  */
 function clearSearch() {
   searchInput.value = ''
+  applyFilters({ resetPage: true })
 }
 
 /**
@@ -350,11 +510,15 @@ function clearSearch() {
  */
 function resetAllFilters() {
   searchInput.value = ''
-  selectedGenre.value = ''
-  selectedTag.value = ''
-  selectedStatus.value = ''
-  selectedSort.value = 'latest'
+  selectedGenres.value = []
+  selectedTags.value = []
+  selectedStatuses.value = []
+  selectedSorts.value = []
+  isFeatured.value = false
+  genreSearchQuery.value = ''
+  tagSearchQuery.value = ''
   currentPage.value = 1
+  closeDropdowns()
   applyFilters({ resetPage: true })
 }
 
@@ -372,7 +536,6 @@ function goToPage(page: number) {
   currentPage.value = page
   applyFilters({ resetPage: false })
 
-  // Scroll to top of results
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
@@ -386,9 +549,14 @@ watch(
 )
 
 onMounted(async () => {
+  document.addEventListener('click', onDocumentClick)
   parseRouteQuery()
   await loadFilterOptions()
   fetchComics()
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', onDocumentClick)
 })
 </script>
 
@@ -398,10 +566,10 @@ onMounted(async () => {
     <header class="catalog-hero">
       <div class="container hero-container">
         <h1 class="hero-title">
-          Danh mục <span class="highlight">Truyện tranh</span>
+          Tìm kiếm <span class="highlight">Truyện tranh</span>
         </h1>
         <p class="hero-subtitle">
-          Tìm kiếm và lọc các bộ truyện yêu thích theo thể loại, từ khóa và trạng thái phát hành
+          Tìm kiếm theo bộ và hoặc tìm kiếm bằng AI
         </p>
 
         <!-- Search Box -->
@@ -427,7 +595,7 @@ onMounted(async () => {
               role="searchbox"
               autocomplete="off"
               class="search-input"
-              :placeholder="searchMode === 'ai' ? 'Mô tả truyện theo trí nhớ của bạn (nhân vật, sự kiện, chi tiết)...' : 'Tìm theo tên truyện, tác giả, tựa đề khác...'"
+              :placeholder="searchMode === 'ai' ? 'Mô tả truyện theo trí nhớ của bạn' : 'Tìm theo tên truyện, tác giả, tựa đề khác...'"
               aria-label="Tìm kiếm truyện tranh"
               :maxlength="searchMode === 'ai' ? 300 : 100"
               @keydown.enter="submitSearch"
@@ -481,86 +649,234 @@ onMounted(async () => {
       <!-- Filter Bar -->
       <section class="filters-panel" aria-label="Bộ lọc truyện tranh">
         <div class="filters-row">
-          <!-- Genre Select -->
+          <!-- Genre Multi-Select -->
           <div class="filter-group">
             <label for="filter-genre" class="filter-label">Thể loại</label>
-            <select
-              id="filter-genre"
-              v-model="selectedGenre"
-              class="filter-select"
-              aria-label="Lọc theo thể loại"
-              @change="applyFilters({ resetPage: true })"
-            >
-              <option value="">Tất cả thể loại</option>
-              <option
-                v-for="genre in genres"
-                :key="genre.id"
-                :value="genre.slug"
+            <div class="multi-select-container">
+              <button
+                id="filter-genre"
+                type="button"
+                class="filter-select multi-select-trigger"
+                :class="{ 'is-active': activeDropdown === 'genre', 'has-selection': selectedGenres.length > 0 }"
+                aria-haspopup="listbox"
+                :aria-expanded="activeDropdown === 'genre'"
+                aria-label="Lọc theo thể loại"
+                @click.stop="toggleDropdown('genre')"
               >
-                {{ genre.name }}
-              </option>
-            </select>
+                <span class="trigger-text">{{ genreTriggerLabel }}</span>
+                <span class="dropdown-chevron" aria-hidden="true">{{ activeDropdown === 'genre' ? '▴' : '▾' }}</span>
+              </button>
+
+              <div
+                v-if="activeDropdown === 'genre'"
+                class="multi-select-dropdown"
+                role="listbox"
+                aria-multiselectable="true"
+                @click.stop
+              >
+                <div class="dropdown-search-box">
+                  <input
+                    v-model="genreSearchQuery"
+                    type="text"
+                    class="dropdown-search-input"
+                    placeholder="Tìm thể loại..."
+                    aria-label="Tìm kiếm thể loại trong danh sách"
+                  />
+                </div>
+                <div class="dropdown-options-list">
+                  <div
+                    v-for="genre in filteredGenres"
+                    :key="genre.id"
+                    class="dropdown-option-item"
+                    :class="{ 'is-checked': selectedGenres.includes(genre.slug) }"
+                    role="option"
+                    :aria-selected="selectedGenres.includes(genre.slug)"
+                    @click="toggleGenre(genre.slug)"
+                  >
+                    <span class="checkbox-box" aria-hidden="true">
+                      <span v-if="selectedGenres.includes(genre.slug)" class="check-icon">✓</span>
+                    </span>
+                    <span class="option-name">{{ genre.name }}</span>
+                  </div>
+                  <div v-if="filteredGenres.length === 0" class="dropdown-empty-item">
+                    Không tìm thấy thể loại
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <!-- Tag Select -->
+          <!-- Tag Multi-Select -->
           <div class="filter-group">
             <label for="filter-tag" class="filter-label">Tag chủ đề</label>
-            <select
-              id="filter-tag"
-              v-model="selectedTag"
-              class="filter-select"
-              aria-label="Lọc theo tag"
-              @change="applyFilters({ resetPage: true })"
-            >
-              <option value="">Tất cả tags</option>
-              <option
-                v-for="tag in tags"
-                :key="tag.id"
-                :value="tag.slug"
+            <div class="multi-select-container">
+              <button
+                id="filter-tag"
+                type="button"
+                class="filter-select multi-select-trigger"
+                :class="{ 'is-active': activeDropdown === 'tag', 'has-selection': selectedTags.length > 0 }"
+                aria-haspopup="listbox"
+                :aria-expanded="activeDropdown === 'tag'"
+                aria-label="Lọc theo tag"
+                @click.stop="toggleDropdown('tag')"
               >
-                {{ tag.name }}
-              </option>
-            </select>
+                <span class="trigger-text">{{ tagTriggerLabel }}</span>
+                <span class="dropdown-chevron" aria-hidden="true">{{ activeDropdown === 'tag' ? '▴' : '▾' }}</span>
+              </button>
+
+              <div
+                v-if="activeDropdown === 'tag'"
+                class="multi-select-dropdown"
+                role="listbox"
+                aria-multiselectable="true"
+                @click.stop
+              >
+                <div class="dropdown-search-box">
+                  <input
+                    v-model="tagSearchQuery"
+                    type="text"
+                    class="dropdown-search-input"
+                    placeholder="Tìm tag..."
+                    aria-label="Tìm kiếm tag trong danh sách"
+                  />
+                </div>
+                <div class="dropdown-options-list">
+                  <div
+                    v-for="tag in filteredTags"
+                    :key="tag.id"
+                    class="dropdown-option-item"
+                    :class="{ 'is-checked': selectedTags.includes(tag.slug) }"
+                    role="option"
+                    :aria-selected="selectedTags.includes(tag.slug)"
+                    @click="toggleTag(tag.slug)"
+                  >
+                    <span class="checkbox-box" aria-hidden="true">
+                      <span v-if="selectedTags.includes(tag.slug)" class="check-icon">✓</span>
+                    </span>
+                    <span class="option-name">{{ tag.name }}</span>
+                  </div>
+                  <div v-if="filteredTags.length === 0" class="dropdown-empty-item">
+                    Không tìm thấy tag
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <!-- Status Select -->
+          <!-- Status Multi-Select -->
           <div class="filter-group">
             <label for="filter-status" class="filter-label">Trạng thái</label>
-            <select
-              id="filter-status"
-              v-model="selectedStatus"
-              class="filter-select"
-              aria-label="Lọc theo trạng thái truyện"
-              @change="applyFilters({ resetPage: true })"
-            >
-              <option
-                v-for="opt in statusOptions"
-                :key="opt.value"
-                :value="opt.value"
+            <div class="multi-select-container">
+              <button
+                id="filter-status"
+                type="button"
+                class="filter-select multi-select-trigger"
+                :class="{ 'is-active': activeDropdown === 'status', 'has-selection': selectedStatuses.length > 0 }"
+                aria-haspopup="listbox"
+                :aria-expanded="activeDropdown === 'status'"
+                aria-label="Lọc theo trạng thái truyện"
+                @click.stop="toggleDropdown('status')"
               >
-                {{ opt.label }}
-              </option>
-            </select>
+                <span class="trigger-text">{{ statusTriggerLabel }}</span>
+                <span class="dropdown-chevron" aria-hidden="true">{{ activeDropdown === 'status' ? '▴' : '▾' }}</span>
+              </button>
+
+              <div
+                v-if="activeDropdown === 'status'"
+                class="multi-select-dropdown"
+                role="listbox"
+                aria-multiselectable="true"
+                @click.stop
+              >
+                <div class="dropdown-options-list">
+                  <div
+                    v-for="opt in statusFilterOptions"
+                    :key="opt.value"
+                    class="dropdown-option-item"
+                    :class="{ 'is-checked': selectedStatuses.includes(opt.value) }"
+                    role="option"
+                    :aria-selected="selectedStatuses.includes(opt.value)"
+                    @click="toggleStatus(opt.value)"
+                  >
+                    <span class="checkbox-box" aria-hidden="true">
+                      <span v-if="selectedStatuses.includes(opt.value)" class="check-icon">✓</span>
+                    </span>
+                    <span class="option-name">{{ opt.label }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <!-- Sort Select -->
+          <!-- Sort Multi-Select -->
           <div class="filter-group">
             <label for="filter-sort" class="filter-label">Sắp xếp</label>
-            <select
-              id="filter-sort"
-              v-model="selectedSort"
-              class="filter-select"
-              aria-label="Sắp xếp danh sách truyện"
-              @change="applyFilters({ resetPage: true })"
-            >
-              <option
-                v-for="opt in sortOptions"
-                :key="opt.value"
-                :value="opt.value"
+            <div class="multi-select-container">
+              <button
+                id="filter-sort"
+                type="button"
+                class="filter-select multi-select-trigger"
+                :class="{ 'is-active': activeDropdown === 'sort', 'has-selection': selectedSorts.length > 0 || isFeatured }"
+                aria-haspopup="listbox"
+                :aria-expanded="activeDropdown === 'sort'"
+                aria-label="Sắp xếp danh sách truyện"
+                @click.stop="toggleDropdown('sort')"
               >
-                {{ opt.label }}
-              </option>
-            </select>
+                <span class="trigger-text">{{ sortTriggerLabel }}</span>
+                <span class="dropdown-chevron" aria-hidden="true">{{ activeDropdown === 'sort' ? '▴' : '▾' }}</span>
+              </button>
+
+              <div
+                v-if="activeDropdown === 'sort'"
+                class="multi-select-dropdown sort-popup-dropdown"
+                role="listbox"
+                aria-multiselectable="true"
+                @click.stop
+              >
+                <!-- Nhóm 1: Sắp xếp theo -->
+                <div class="dropdown-group-header">Sắp xếp theo</div>
+                <div class="dropdown-options-list">
+                  <div
+                    v-for="opt in sortOptions"
+                    :key="opt.value"
+                    class="dropdown-option-item"
+                    :class="{ 'is-checked': selectedSorts.includes(opt.value) }"
+                    role="option"
+                    :aria-selected="selectedSorts.includes(opt.value)"
+                    @click="toggleSort(opt.value)"
+                  >
+                    <span class="checkbox-box" aria-hidden="true">
+                      <span v-if="selectedSorts.includes(opt.value)" class="check-icon">✓</span>
+                    </span>
+                    <span class="option-name">{{ opt.label }}</span>
+                    <span
+                      v-if="selectedSorts.includes(opt.value)"
+                      class="sort-priority-badge"
+                    >
+                      #{{ selectedSorts.indexOf(opt.value) + 1 }}
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Nhóm 2: Lọc nhanh -->
+                <div class="dropdown-group-divider"></div>
+                <div class="dropdown-group-header">Lọc nhanh</div>
+                <div class="dropdown-options-list">
+                  <div
+                    class="dropdown-option-item filter-featured-option"
+                    :class="{ 'is-checked': isFeatured }"
+                    role="checkbox"
+                    :aria-checked="isFeatured"
+                    @click="toggleFeatured"
+                  >
+                    <span class="checkbox-box" aria-hidden="true">
+                      <span v-if="isFeatured" class="check-icon">✓</span>
+                    </span>
+                    <span class="option-name">Truyện nổi bật</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Reset Filter Button -->
@@ -693,6 +1009,7 @@ onMounted(async () => {
             :key="comic.id"
             :comic="comic"
             :search-mode="searchMode"
+            @share="handleShareComic"
           />
         </div>
 
@@ -730,6 +1047,20 @@ onMounted(async () => {
         </nav>
       </div>
     </main>
+
+    <!-- Share Comic Modal -->
+    <ShareRecipientModal
+      v-if="sharingComic"
+      :is-open="isShareModalOpen"
+      :comic="{
+        id: sharingComic.id,
+        title: sharingComic.title,
+        slug: sharingComic.slug,
+        cover_url: sharingComic.cover_url,
+        author: sharingComic.author_name,
+      }"
+      @close="isShareModalOpen = false"
+    />
   </div>
 </template>
 
@@ -1001,7 +1332,13 @@ onMounted(async () => {
 
 @media (min-width: 640px) {
   .filters-row {
-    grid-template-columns: repeat(4, 1fr) auto;
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .filters-row {
+    grid-template-columns: repeat(4, 1fr) auto auto;
   }
 }
 
@@ -1009,6 +1346,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  position: relative;
 }
 
 .filter-label {
@@ -1037,6 +1375,213 @@ onMounted(async () => {
 .filter-select option {
   background-color: var(--color-bg-surface);
   color: var(--color-text-primary);
+}
+
+.filter-checkbox-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 var(--spacing-sm);
+  user-select: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.filter-checkbox-btn.is-checked {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-soft, rgba(56, 139, 253, 0.1));
+}
+
+.filter-checkbox-btn .checkbox-box {
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs, 3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-bg-surface-raised, #21262d);
+  flex-shrink: 0;
+}
+
+.filter-checkbox-btn.is-checked .checkbox-box {
+  background-color: var(--color-primary, #388bfd);
+  border-color: var(--color-primary, #388bfd);
+  color: #fff;
+}
+
+.filter-checkbox-btn .check-icon {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+}
+
+/* Multi-select Dropdown UI */
+.multi-select-container {
+  position: relative;
+  width: 100%;
+}
+
+.multi-select-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-xs);
+  text-align: left;
+  user-select: none;
+}
+
+.trigger-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.dropdown-chevron {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+  transition: transform var(--transition-fast);
+}
+
+.multi-select-trigger.is-active .dropdown-chevron {
+  color: var(--color-primary);
+}
+
+.multi-select-trigger.has-selection {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.multi-select-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  min-width: 220px;
+  max-height: 260px;
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dropdown-search-box {
+  padding: var(--spacing-xs);
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-bg-surface);
+}
+
+.dropdown-search-input {
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--spacing-xs);
+  background-color: var(--color-bg-card);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  outline: none;
+}
+
+.dropdown-search-input:focus {
+  border-color: var(--color-primary);
+}
+
+.dropdown-options-list {
+  max-height: 210px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.dropdown-group-header {
+  padding: 6px 12px 2px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.dropdown-group-divider {
+  height: 1px;
+  background-color: var(--color-border);
+  margin: 4px 0;
+}
+
+.dropdown-option-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-primary);
+  transition: background-color var(--transition-fast);
+}
+
+.dropdown-option-item:hover {
+  background-color: var(--color-bg-surface);
+}
+
+.dropdown-option-item.is-checked {
+  background-color: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
+.checkbox-box {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background-color: var(--color-bg-surface);
+  transition: all var(--transition-fast);
+}
+
+.dropdown-option-item.is-checked .checkbox-box {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary);
+  color: #fff;
+}
+
+.check-icon {
+  font-size: 10px;
+  line-height: 1;
+  font-weight: bold;
+}
+
+.option-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sort-priority-badge {
+  font-size: 10px;
+  font-weight: var(--font-weight-bold);
+  padding: 1px 6px;
+  background-color: var(--color-primary);
+  color: #fff;
+  border-radius: var(--radius-full);
+}
+
+.dropdown-empty-item {
+  padding: 12px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-align: center;
 }
 
 .btn-reset-filters {

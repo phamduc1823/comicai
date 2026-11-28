@@ -68,12 +68,20 @@ class GeminiEmbeddingService implements EmbeddingServiceInterface
         try {
             $url = "{$this->baseUrl}/models/{$this->model}:embedContent";
 
-            $response = Http::timeout($effectiveTimeout)
+            $verifySsl = config('ai.gemini.verify_ssl');
+            $shouldVerify = $verifySsl !== false && ! ($verifySsl === null && app()->isLocal() && empty(ini_get('curl.cainfo')) && empty(ini_get('openssl.cafile')));
+
+            $httpClient = Http::timeout($effectiveTimeout)
                 ->withHeaders([
                     'Content-Type' => 'application/json',
                     'x-goog-api-key' => $this->apiKey,
-                ])
-                ->post($url, [
+                ]);
+
+            if (! $shouldVerify) {
+                $httpClient = $httpClient->withoutVerifying();
+            }
+
+            $response = $httpClient->post($url, [
                     'model' => "models/{$this->model}",
                     'content' => [
                         'parts' => [

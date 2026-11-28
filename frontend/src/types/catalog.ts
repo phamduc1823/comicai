@@ -151,11 +151,16 @@ export type ComicSortOption = 'latest' | 'views' | 'follows'
 export interface ListComicsParams {
   page?: number
   per_page?: number
-  genre?: string
-  tag?: string
-  status?: ComicStatus
-  sort?: ComicSortOption | 'updated' | 'weekly_views'
-  is_featured?: boolean | number
+  genre?: string | string[]
+  genres?: string[]
+  tag?: string | string[]
+  tags?: string[]
+  status?: ComicStatus | ComicStatus[] | string
+  statuses?: ComicStatus[]
+  sort?: ComicSortOption | ComicSortOption[] | string
+  sorts?: ComicSortOption[]
+  is_featured?: boolean | number | string
+  featured?: boolean | number | string
   q?: string
 }
 

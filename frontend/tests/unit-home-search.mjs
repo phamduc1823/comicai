@@ -54,9 +54,9 @@ describe('CAI-QD1: Homepage Comic Search & Full Catalog Integration Suite', () =
   it('3. HomeSearchSection implements exact screenshot header and search bar with mode dropdown', () => {
     const searchFile = fs.readFileSync(path.join(projectRoot, 'src/components/HomeSearchSection.vue'), 'utf8')
 
-    // Hero Header matching screenshot
-    assert.match(searchFile, /Danh mục\s+<span class="highlight">Truyện tranh<\/span>/, 'Must match exact title: Danh mục Truyện tranh')
-    assert.match(searchFile, /Tìm kiếm và lọc các bộ truyện yêu thích theo thể loại, từ khóa và trạng thái phát hành/, 'Must match exact subtitle')
+    // Hero Header matching CAI-CATALOG-04 specification
+    assert.match(searchFile, /Tìm kiếm\s+<span class="highlight">Truyện tranh<\/span>/, 'Must match exact title: Tìm kiếm Truyện tranh')
+    assert.match(searchFile, /Tìm kiếm theo bộ và hoặc tìm kiếm bằng AI/, 'Must match exact subtitle')
 
     // Search bar with mode dropdown
     assert.match(searchFile, /search-mode-select/, 'Must have search-mode-select dropdown')

@@ -16,7 +16,7 @@ class AiSearchRequest extends FormRequest
     }
 
     /**
-     * Prepare inputs for validation (normalize age_rating if unencoded plus becomes space).
+     * Prepare inputs for validation (normalize age_rating if unencoded plus becomes space, normalize arrays/commas).
      */
     protected function prepareForValidation(): void
     {
@@ -25,6 +25,26 @@ class AiSearchRequest extends FormRequest
             if (in_array($val, ['13', '16', '18'], true)) {
                 $this->merge(['age_rating' => $val . '+']);
             }
+        }
+
+        $normalize = function ($value) {
+            if (is_array($value)) {
+                return array_values(array_filter(array_map('trim', $value), fn ($v) => $v !== ''));
+            }
+            if (is_string($value) && str_contains($value, ',')) {
+                return array_values(array_filter(array_map('trim', explode(',', $value)), fn ($v) => $v !== ''));
+            }
+            return $value;
+        };
+
+        $data = [];
+        foreach (['genre', 'tag', 'status'] as $key) {
+            if ($this->has($key)) {
+                $data[$key] = $normalize($this->input($key));
+            }
+        }
+        if (! empty($data)) {
+            $this->merge($data);
         }
     }
 
@@ -35,15 +55,24 @@ class AiSearchRequest extends FormRequest
      */
     public function rules(): array
     {
-        return [
+        $genreRules = is_array($this->input('genre'))
+            ? ['genre' => ['sometimes', 'nullable', 'array'], 'genre.*' => ['string', 'max:100']]
+            : ['genre' => ['sometimes', 'nullable', 'string', 'max:100']];
+
+        $tagRules = is_array($this->input('tag'))
+            ? ['tag' => ['sometimes', 'nullable', 'array'], 'tag.*' => ['string', 'max:100']]
+            : ['tag' => ['sometimes', 'nullable', 'string', 'max:100']];
+
+        $statusRules = is_array($this->input('status'))
+            ? ['status' => ['sometimes', 'nullable', 'array'], 'status.*' => ['string', 'in:ongoing,completed,hiatus']]
+            : ['status' => ['sometimes', 'nullable', 'string', 'in:ongoing,completed,hiatus']];
+
+        return array_merge([
             'q' => ['required', 'string', 'min:2', 'max:300'],
             'mode' => ['sometimes', 'nullable', 'string', 'in:normal,ai'],
-            'genre' => ['sometimes', 'nullable', 'string', 'max:100'],
-            'tag' => ['sometimes', 'nullable', 'string', 'max:100'],
             'age_rating' => ['sometimes', 'nullable', 'string', 'in:all,13+,16+,18+'],
-            'status' => ['sometimes', 'nullable', 'string', 'in:ongoing,completed,hiatus'],
             'limit' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:50'],
-        ];
+        ], $genreRules, $tagRules, $statusRules);
     }
 
     /**

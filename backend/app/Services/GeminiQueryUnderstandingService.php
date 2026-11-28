@@ -59,9 +59,17 @@ class GeminiQueryUnderstandingService
             // Enforce real network socket timeout (max 8 seconds per CAI-002F)
             $effectiveTimeout = max(1, min(8, $this->timeout));
 
-            $response = Http::timeout($effectiveTimeout)
-                ->withHeaders(['Content-Type' => 'application/json'])
-                ->post($url, [
+            $verifySsl = config('ai.gemini.verify_ssl');
+            $shouldVerify = $verifySsl !== false && ! ($verifySsl === null && app()->isLocal() && empty(ini_get('curl.cainfo')) && empty(ini_get('openssl.cafile')));
+
+            $httpClient = Http::timeout($effectiveTimeout)
+                ->withHeaders(['Content-Type' => 'application/json']);
+
+            if (! $shouldVerify) {
+                $httpClient = $httpClient->withoutVerifying();
+            }
+
+            $response = $httpClient->post($url, [
                     'contents' => [
                         [
                             'parts' => [

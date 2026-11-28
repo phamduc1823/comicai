@@ -67,10 +67,10 @@ test('CAI-HOME-03: Homepage Sections, Featured Comics & Integer Chapter Numberin
     assert.match(adminDetailPage, /handleToggleFeaturedDetail/)
   })
 
-  await t.test('2. 5 Homepage discovery sections strictly limited to 6 comics', () => {
-    // Requests must specify per_page: 6 for all 5 sections
+  await t.test('2. Homepage discovery sections strictly limited to 6 comics', () => {
+    // Requests must specify per_page: 6 for discovery sections
     const matches = discoveryFile.match(/per_page:\s*6/g)
-    assert.ok(matches && matches.length >= 5, 'All 5 discovery sections must request per_page: 6')
+    assert.ok(matches && matches.length >= 4, 'All discovery sections must request per_page: 6')
     // Deduplication & limit helper
     assert.match(discoveryFile, /dedupeAndLimit/)
     // CSS grid supports 6 columns

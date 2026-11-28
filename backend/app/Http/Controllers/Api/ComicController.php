@@ -52,28 +52,45 @@ class ComicController extends Controller
                 'latestPublishedChapter:id,comic_id,chapter_number,title,slug,created_at,updated_at',
             ]);
 
-        // Filter by genre slug
-        if (! empty($validated['genre'])) {
-            $query->whereHas('genres', function ($q) use ($validated) {
-                $q->where('slug', $validated['genre']);
+        // Helper to extract list from singular or plural parameter (string or array)
+        $extractList = function (array $validated, string $singular, string $plural): array {
+            $raw = $validated[$plural] ?? $validated[$singular] ?? [];
+            if (is_string($raw)) {
+                $raw = str_contains($raw, ',') ? explode(',', $raw) : [$raw];
+            }
+            if (! is_array($raw)) {
+                return [];
+            }
+            return array_values(array_unique(array_filter(array_map('trim', $raw), fn ($v) => $v !== '')));
+        };
+
+        // Filter by genre slug (OR within group)
+        $genres = $extractList($validated, 'genre', 'genres');
+        if (! empty($genres)) {
+            $query->whereHas('genres', function ($q) use ($genres) {
+                $q->whereIn('slug', $genres);
             });
         }
 
-        // Filter by tag slug
-        if (! empty($validated['tag'])) {
-            $query->whereHas('tags', function ($q) use ($validated) {
-                $q->where('slug', $validated['tag']);
+        // Filter by tag slug (OR within group)
+        $tags = $extractList($validated, 'tag', 'tags');
+        if (! empty($tags)) {
+            $query->whereHas('tags', function ($q) use ($tags) {
+                $q->whereIn('slug', $tags);
             });
         }
 
-        // Filter by comic status (ongoing, completed, hiatus)
-        if (! empty($validated['status'])) {
-            $query->where('status', $validated['status']);
+        // Filter by comic status (OR within group: ongoing, completed, hiatus)
+        $statuses = $extractList($validated, 'status', 'statuses');
+        if (! empty($statuses)) {
+            $query->whereIn('status', $statuses);
         }
 
         // Filter by featured status
         if (isset($validated['is_featured'])) {
-            $query->where('is_featured', (bool) $validated['is_featured']);
+            $query->where('is_featured', filter_var($validated['is_featured'], FILTER_VALIDATE_BOOLEAN));
+        } elseif (isset($validated['featured'])) {
+            $query->where('is_featured', filter_var($validated['featured'], FILTER_VALIDATE_BOOLEAN));
         }
 
         // Keyword search with safe % and _ wildcard escaping
@@ -88,20 +105,28 @@ class ComicController extends Controller
             });
         }
 
-        // Sorting with deterministic id tie-break
-        $sort = $validated['sort'] ?? 'latest';
-        match ($sort) {
-            'views', 'weekly_views' => $query->orderBy('views_count', 'desc')->orderBy('id', 'desc'),
-            'follows' => $query->orderBy('follows_count', 'desc')->orderBy('id', 'desc'),
-            'updated' => $query->orderByDesc(
-                \App\Models\Chapter::select('created_at')
-                    ->whereColumn('chapters.comic_id', 'comics.id')
-                    ->where('status', 'published')
-                    ->latest()
-                    ->limit(1)
-            )->orderBy('updated_at', 'desc')->orderBy('id', 'desc'),
-            default => $query->orderBy('created_at', 'desc')->orderBy('id', 'desc'),
-        };
+        // Sorting with multi-criteria priority and deterministic id tie-break
+        $sorts = $extractList($validated, 'sort', 'sorts');
+        if (empty($sorts)) {
+            $sorts = ['latest'];
+        }
+
+        foreach ($sorts as $sort) {
+            match ($sort) {
+                'views', 'weekly_views' => $query->orderBy('views_count', 'desc'),
+                'follows' => $query->orderBy('follows_count', 'desc'),
+                'updated' => $query->orderByDesc(
+                    \App\Models\Chapter::select('created_at')
+                        ->whereColumn('chapters.comic_id', 'comics.id')
+                        ->where('status', 'published')
+                        ->latest()
+                        ->limit(1)
+                )->orderBy('updated_at', 'desc'),
+                'latest' => $query->orderBy('created_at', 'desc'),
+                default => null,
+            };
+        }
+        $query->orderBy('id', 'desc');
 
         $comics = $query->paginate($perPage);
 

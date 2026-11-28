@@ -77,9 +77,12 @@ export class CatalogService {
   static async aiSearch(params: {
     q: string
     mode?: 'normal' | 'ai'
-    genre?: string
-    tag?: string
-    status?: string
+    genre?: string | string[]
+    genres?: string[]
+    tag?: string | string[]
+    tags?: string[]
+    status?: string | string[]
+    statuses?: string[]
     age_rating?: string
     limit?: number
   }): Promise<{
