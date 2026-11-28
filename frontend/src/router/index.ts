@@ -29,6 +29,19 @@ const router = createRouter({
       return { el: to.hash, behavior: 'smooth' }
     }
 
+    // CAI-CATALOG-04: Preserve scroll position when staying on the same route path (e.g. filter/query param changes)
+    if (to.path === from.path) {
+      return false
+    }
+
+    // CAI-COMMUNITY-03: When navigating back to /community from a post detail, do not reset scroll to top
+    if (to.path === '/community' && (from.path.startsWith('/posts/') || from.name === 'post-detail')) {
+      if (savedPosition) {
+        return savedPosition
+      }
+      return false
+    }
+
     // Reset window scroll to top when opening a comic from home page or navigating between public pages
     if (
       to.name === 'comic-detail' ||
@@ -103,6 +116,16 @@ const router = createRouter({
       component: () => import('@/pages/AccountProfilePage.vue'),
       meta: {
         title: 'Quản lý tài khoản — BlueToon',
+        requiresAuth: true,
+      },
+    },
+    {
+      path: '/account/users',
+      alias: ['/users-connections', '/connections'],
+      name: 'account-users',
+      component: () => import('@/pages/UserConnectionsPage.vue'),
+      meta: {
+        title: 'Người dùng — ComicAI',
         requiresAuth: true,
       },
     },

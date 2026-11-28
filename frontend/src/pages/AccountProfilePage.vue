@@ -5,21 +5,25 @@ import { useAuthStore } from '@/stores/auth'
 import { AccountService } from '@/services/accountService'
 import { AuthService } from '@/services/authService'
 import { CreatorApplicationService } from '@/services/creatorApplicationService'
+import { CommunityService } from '@/services/communityService'
 import { getErrorMessage, isValidationError, getValidationErrors, isRateLimitError } from '@/services/httpClient'
 import type { CreatorApplication, CreatorProfileInfo } from '@/types/creatorApplication'
+import type { FollowingUserItem } from '@/types/community'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 
-// Tab navigation: 'profile' | 'password' | 'creator'
-const activeTab = ref<'profile' | 'password' | 'creator'>('profile')
+// Tab navigation: 'profile' | 'following' | 'password' | 'creator'
+const activeTab = ref<'profile' | 'following' | 'password' | 'creator'>('profile')
 
 // Sync tab with route hash if present
 watch(
   () => route.hash,
   (hash) => {
-    if (hash === '#password') {
+    if (hash === '#following') {
+      activeTab.value = 'following'
+    } else if (hash === '#password') {
       activeTab.value = 'password'
     } else if (hash === '#creator') {
       activeTab.value = 'creator'
@@ -30,11 +34,84 @@ watch(
   { immediate: true }
 )
 
-function setTab(tab: 'profile' | 'password' | 'creator') {
+function setTab(tab: 'profile' | 'following' | 'password' | 'creator') {
   activeTab.value = tab
-  const hash = tab === 'password' ? '#password' : tab === 'creator' ? '#creator' : '#profile'
+  const hash =
+    tab === 'following'
+      ? '#following'
+      : tab === 'password'
+        ? '#password'
+        : tab === 'creator'
+          ? '#creator'
+          : '#profile'
   if (route.hash !== hash) {
     router.replace({ hash })
+  }
+}
+
+// ----------------------------------------------------
+// 0. Following Management State & Actions (CAI-USER-02)
+// ----------------------------------------------------
+const followingList = ref<FollowingUserItem[]>([])
+const followingTotalCount = ref(0)
+const followingSearchQuery = ref('')
+const isLoadingFollowingList = ref(false)
+const followingFeedbackMessage = ref<string | null>(null)
+const followingErrorMessage = ref<string | null>(null)
+const isUnfollowingMap = ref<Record<number, boolean>>({})
+
+async function loadFollowingList() {
+  isLoadingFollowingList.value = true
+  followingErrorMessage.value = null
+  try {
+    const res = await CommunityService.getFollowingUsers(100)
+    followingList.value = res.data || []
+    followingTotalCount.value = res.meta?.total ?? followingList.value.length
+  } catch (err) {
+    followingErrorMessage.value = getErrorMessage(err, 'Không thể tải danh sách người đang theo dõi.')
+  } finally {
+    isLoadingFollowingList.value = false
+  }
+}
+
+watch(
+  activeTab,
+  (tab) => {
+    if (tab === 'following' && followingList.value.length === 0 && !isLoadingFollowingList.value) {
+      loadFollowingList()
+    }
+  },
+  { immediate: true }
+)
+
+const filteredFollowingList = computed(() => {
+  const q = followingSearchQuery.value.trim().toLowerCase()
+  if (!q) return followingList.value
+  return followingList.value.filter((user) => user.name.toLowerCase().includes(q))
+})
+
+async function handleProfileUnfollow(userId: number, userName: string) {
+  if (isUnfollowingMap.value[userId]) return
+  isUnfollowingMap.value[userId] = true
+  followingFeedbackMessage.value = null
+  followingErrorMessage.value = null
+
+  try {
+    await CommunityService.unfollowUser(userId)
+    followingList.value = followingList.value.filter((u) => u.id !== userId)
+    if (followingTotalCount.value > 0) {
+      followingTotalCount.value--
+    }
+    followingFeedbackMessage.value = `Đã bỏ theo dõi ${userName}.`
+    setTimeout(() => {
+      if (followingFeedbackMessage.value?.includes(userName)) {
+        followingFeedbackMessage.value = null
+      }
+    }, 4000)
+  } catch (err) {
+    followingErrorMessage.value = getErrorMessage(err, 'Không thể bỏ theo dõi người dùng này.')
+  } finally {
+    isUnfollowingMap.value[userId] = false
   }
 }
 
@@ -488,6 +565,21 @@ onMounted(() => {
         <button
           type="button"
           class="tab-nav-btn"
+          :class="{ active: activeTab === 'following' }"
+          role="tab"
+          :aria-selected="activeTab === 'following'"
+          @click="setTab('following')"
+        >
+          <span class="tab-icon" aria-hidden="true">👥</span>
+          <span>Đang theo dõi</span>
+          <span v-if="followingTotalCount > 0" class="tab-counter-badge following-count">
+            {{ followingTotalCount }}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          class="tab-nav-btn"
           :class="{ active: activeTab === 'password' }"
           role="tab"
           :aria-selected="activeTab === 'password'"
@@ -706,6 +798,125 @@ onMounted(() => {
               </button>
             </div>
           </form>
+        </div>
+
+        <!-- TAB: Following Management (CAI-USER-02) -->
+        <div v-else-if="activeTab === 'following'" class="tab-pane" role="tabpanel" aria-labelledby="tab-following">
+          <div class="following-manager">
+            <div class="panel-section-header">
+              <div class="following-header-row">
+                <div>
+                  <h2 class="panel-section-title">Danh sách người đang theo dõi</h2>
+                  <p class="panel-section-desc">
+                    Quản lý danh sách tác giả và người dùng mà bạn đang theo dõi trên ComicAI.
+                  </p>
+                </div>
+                <span v-if="followingTotalCount > 0" class="following-total-pill">
+                  {{ followingTotalCount }} người đang theo dõi
+                </span>
+              </div>
+            </div>
+
+            <!-- Search Bar in Following List -->
+            <div class="following-search-wrapper">
+              <span class="search-input-icon" aria-hidden="true">🔍</span>
+              <input
+                v-model="followingSearchQuery"
+                type="text"
+                placeholder="Tìm kiếm theo tên trong danh sách theo dõi..."
+                class="following-search-field"
+                aria-label="Tìm kiếm người đang theo dõi"
+              />
+              <button
+                v-if="followingSearchQuery"
+                type="button"
+                class="btn-clear-input"
+                title="Xóa tìm kiếm"
+                aria-label="Xóa tìm kiếm"
+                @click="followingSearchQuery = ''"
+              >
+                ✕
+              </button>
+            </div>
+
+            <!-- Feedback Alerts -->
+            <div v-if="followingFeedbackMessage" class="feedback-banner success" role="alert">
+              {{ followingFeedbackMessage }}
+            </div>
+            <div v-if="followingErrorMessage" class="feedback-banner error" role="alert">
+              {{ followingErrorMessage }}
+            </div>
+
+            <!-- Loading Skeleton -->
+            <div v-if="isLoadingFollowingList" class="following-loading-block" aria-busy="true">
+              <div class="spinner" aria-hidden="true"></div>
+              <span>Đang tải danh sách người theo dõi...</span>
+            </div>
+
+            <!-- Empty: No following users -->
+            <div v-else-if="followingList.length === 0" class="following-empty-box">
+              <div class="empty-icon-wrap" aria-hidden="true">👥</div>
+              <h3 class="empty-heading">Bạn chưa theo dõi người dùng nào</h3>
+              <p class="empty-subtext">
+                Khám phá các tác giả nổi bật trong Cộng đồng để cập nhật bài viết và hoạt động mới nhất.
+              </p>
+              <RouterLink to="/community" class="btn-community-link">
+                Khám phá Cộng đồng
+              </RouterLink>
+            </div>
+
+            <!-- Empty: Search no results -->
+            <div v-else-if="filteredFollowingList.length === 0" class="following-empty-box">
+              <div class="empty-icon-wrap" aria-hidden="true">🔎</div>
+              <h3 class="empty-heading">Không tìm thấy người dùng phù hợp</h3>
+              <p class="empty-subtext">
+                Không có người dùng nào khớp với từ khóa "<strong>{{ followingSearchQuery }}</strong>".
+              </p>
+              <button type="button" class="btn-clear-filter" @click="followingSearchQuery = ''">
+                Xem tất cả người đang theo dõi
+              </button>
+            </div>
+
+            <!-- Following Grid -->
+            <div v-else class="following-users-grid" role="list">
+              <div
+                v-for="user in filteredFollowingList"
+                :key="'following-user-' + user.id"
+                class="following-item-card"
+                role="listitem"
+              >
+                <RouterLink :to="`/users/${user.id}`" class="following-item-info">
+                  <img
+                    v-if="user.avatar_url || user.avatar_path"
+                    :src="user.avatar_url || user.avatar_path || ''"
+                    :alt="user.name"
+                    class="following-avatar"
+                  />
+                  <div v-else class="following-avatar-fallback">
+                    {{ user.name.charAt(0).toUpperCase() }}
+                  </div>
+                  <div class="following-details">
+                    <span class="following-name" :title="user.name">{{ user.name }}</span>
+                    <span v-if="user.role === 'creator'" class="badge-role creator">Tác giả</span>
+                    <span v-else class="following-post-count">{{ user.posts_count || 0 }} bài viết</span>
+                  </div>
+                </RouterLink>
+
+                <div class="following-action-area">
+                  <button
+                    type="button"
+                    class="btn-following-toggle"
+                    :disabled="isUnfollowingMap[user.id]"
+                    :title="'Bấm để bỏ theo dõi ' + user.name"
+                    @click="handleProfileUnfollow(user.id, user.name)"
+                  >
+                    <span v-if="isUnfollowingMap[user.id]">Đang hủy...</span>
+                    <span v-else class="btn-label-state">Đang theo dõi</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- TAB 2: Change Password -->
@@ -1907,5 +2118,251 @@ onMounted(() => {
     flex-direction: column;
     align-items: flex-start;
   }
+}
+
+/* Following Management Styles (CAI-USER-02) */
+.tab-counter-badge.following-count {
+  background-color: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  font-weight: 700;
+}
+
+.following-manager {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.following-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.following-total-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  background: rgba(56, 189, 248, 0.1);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 9999px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.following-search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.search-input-icon {
+  position: absolute;
+  left: 14px;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.following-search-field {
+  width: 100%;
+  padding: 10px 38px 10px 38px;
+  background-color: var(--color-bg-base, #0d1117);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-base);
+  font-size: var(--font-size-sm);
+  transition: all var(--transition-fast);
+}
+
+.following-search-field:focus {
+  outline: none;
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
+}
+
+.btn-clear-input {
+  position: absolute;
+  right: 12px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 4px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-clear-input:hover {
+  color: var(--color-text-base);
+}
+
+.following-loading-block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 16px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.following-empty-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 48px 24px;
+  background-color: rgba(255, 255, 255, 0.02);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-xl);
+  gap: 10px;
+}
+
+.empty-icon-wrap {
+  font-size: 36px;
+  margin-bottom: 4px;
+}
+
+.empty-heading {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  color: var(--color-text-base);
+}
+
+.empty-subtext {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  max-width: 420px;
+}
+
+.btn-community-link,
+.btn-clear-filter {
+  margin-top: 10px;
+  padding: 8px 18px;
+  background-color: #0284c7;
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color var(--transition-fast);
+}
+
+.btn-community-link:hover,
+.btn-clear-filter:hover {
+  background-color: #0369a1;
+}
+
+.following-users-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.following-item-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background-color: var(--color-bg-base, #0d1117);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  gap: 12px;
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.following-item-card:hover {
+  border-color: rgba(56, 189, 248, 0.3);
+  transform: translateY(-1px);
+}
+
+.following-item-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+  flex: 1;
+}
+
+.following-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid var(--color-border);
+}
+
+.following-avatar-fallback {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #0284c7, #38bdf8);
+  color: #fff;
+  font-weight: 700;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.following-details {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.following-name {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-base);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.following-post-count {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.btn-following-toggle {
+  padding: 6px 12px;
+  border-radius: 9999px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  border: 1px solid var(--color-border);
+  background-color: rgba(255, 255, 255, 0.05);
+  color: var(--color-text-base);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+
+.btn-following-toggle:hover:not(:disabled) {
+  background-color: rgba(239, 68, 68, 0.15);
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.btn-following-toggle:hover:not(:disabled) .btn-label-state::after {
+  content: ' (Hủy)';
 }
 </style>

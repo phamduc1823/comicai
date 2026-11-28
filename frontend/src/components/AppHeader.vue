@@ -371,31 +371,17 @@ async function handleDropdownLogout() {
                     </div>
                   </RouterLink>
 
-                  <!-- 2. Cập nhật thông tin -->
+                  <!-- 2. Người dùng -->
                   <RouterLink
-                    to="/profile#settings"
+                    to="/account/users"
                     class="dropdown-menu-item"
                     role="menuitem"
                     @click="closeDropdown"
                   >
-                    <span class="item-icon" aria-hidden="true">⚙️</span>
+                    <span class="item-icon" aria-hidden="true">👥</span>
                     <div class="item-info">
-                      <span class="item-title">Cập nhật thông tin</span>
-                      <span class="item-desc">Thay đổi tên, email, avatar</span>
-                    </div>
-                  </RouterLink>
-
-                  <!-- 3. Đổi mật khẩu -->
-                  <RouterLink
-                    to="/profile#password"
-                    class="dropdown-menu-item"
-                    role="menuitem"
-                    @click="closeDropdown"
-                  >
-                    <span class="item-icon" aria-hidden="true">🔒</span>
-                    <div class="item-info">
-                      <span class="item-title">Đổi mật khẩu</span>
-                      <span class="item-desc">Bảo mật tài khoản</span>
+                      <span class="item-title">Người dùng</span>
+                      <span class="item-desc">Người theo dõi & Đang theo dõi</span>
                     </div>
                   </RouterLink>
 
