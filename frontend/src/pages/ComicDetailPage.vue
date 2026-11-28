@@ -26,6 +26,7 @@ import {
 import CommentSection from '@/components/community/CommentSection.vue'
 import ReportModal from '@/components/common/ReportModal.vue'
 import ComicPurchaseModal from '@/components/common/ComicPurchaseModal.vue'
+import ShareRecipientModal from '@/components/chat/ShareRecipientModal.vue'
 import { useWalletStore } from '@/stores/wallet'
 import type { PurchaseComicResult } from '@/types/wallet'
 
@@ -33,6 +34,19 @@ const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const walletStore = useWalletStore()
+
+const isShareModalOpen = ref(false)
+
+function handleShareComic() {
+  if (!authStore.isAuthenticated) {
+    router.push({
+      path: '/login',
+      query: { redirect: route.fullPath },
+    })
+    return
+  }
+  isShareModalOpen.value = true
+}
 
 // VIP Comic Purchase state
 const isPurchaseModalOpen = ref(false)
@@ -932,6 +946,33 @@ onUnmounted(() => {
                     <span class="interact-icon-wrap" aria-hidden="true">🚩</span>
                     <span class="interact-label">Báo cáo</span>
                   </button>
+
+                  <!-- Share Comic Button -->
+                  <button
+                    type="button"
+                    class="btn-interact btn-share"
+                    title="Chia sẻ"
+                    aria-label="Chia sẻ"
+                    @click="handleShareComic"
+                  >
+                    <span class="interact-icon-wrap" aria-hidden="true">
+                      <svg
+                        class="share-icon-svg"
+                        viewBox="0 0 24 24"
+                        width="20"
+                        height="20"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M13 4v4c-6.575 1.028-9.02 6.788-10 12-.037.206 5.384-5.962 10-6v4l8-7-8-7z" />
+                      </svg>
+                    </span>
+                    <span class="interact-label">Chia sẻ</span>
+                  </button>
                 </div>
               </div>
 
@@ -1069,10 +1110,11 @@ onUnmounted(() => {
           </div>
         </section>
 
-        <!-- Comments Section (Package 9.4B) -->
+        <!-- Comments Section (Package 9.4B & CAI-COMMENT-01) -->
         <CommentSection
           target-type="comic"
           :target-id="comic.id"
+          :comic-author-id="comic.creator?.id"
         />
       </main>
     </div>
@@ -1085,6 +1127,20 @@ onUnmounted(() => {
       :reportable-id="comic.id"
       :target-title="`Bộ truyện: ${comic.title}`"
       @close="isReportModalOpen = false"
+    />
+
+    <!-- Share Comic Modal -->
+    <ShareRecipientModal
+      v-if="comic"
+      :is-open="isShareModalOpen"
+      :comic="{
+        id: comic.id,
+        title: comic.title,
+        slug: comic.slug,
+        cover_url: comic.cover_url,
+        author: comic.author_name,
+      }"
+      @close="isShareModalOpen = false"
     />
 
     <!-- Comic Purchase Modal Component -->
@@ -1817,6 +1873,18 @@ onUnmounted(() => {
 .btn-interact.btn-report:hover:not(:disabled) {
   border-color: #ef4444;
   color: #ef4444;
+}
+
+.btn-share .share-icon-svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  color: inherit;
+  transition: transform var(--transition-fast, 0.15s ease);
+}
+
+.btn-share:hover:not(:disabled) .share-icon-svg {
+  transform: scale(1.12);
 }
 
 .btn-interact:focus-visible {
