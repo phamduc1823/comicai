@@ -6,10 +6,13 @@ import { CommunityService } from '@/services/communityService'
 import { getErrorMessage, isNotFoundError } from '@/services/httpClient'
 import PostCard from '@/components/community/PostCard.vue'
 import PostFormModal from '@/components/community/PostFormModal.vue'
+import ShareRecipientModal from '@/components/chat/ShareRecipientModal.vue'
 import CommentSection from '@/components/community/CommentSection.vue'
+import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
 
 // Request synchronization & lifecycle guard
 let activeFetchId = 0
@@ -23,6 +26,26 @@ const errorMessage = ref<string | null>(null)
 
 // Modal State
 const isEditModalOpen = ref(false)
+const isShareModalOpen = ref(false)
+
+function handleSharePost() {
+  if (!authStore.isAuthenticated) {
+    router.push({
+      path: '/login',
+      query: { redirect: route.fullPath },
+    })
+    return
+  }
+  isShareModalOpen.value = true
+}
+
+function handleGoBack() {
+  if (window.history.state?.back) {
+    router.back()
+  } else {
+    router.push('/community')
+  }
+}
 
 async function fetchPostDetail(targetParam?: string | string[]) {
   const fetchId = ++activeFetchId
@@ -114,10 +137,10 @@ onUnmounted(() => {
     <div class="container post-detail-container">
       <!-- Back navigation button -->
       <nav class="back-nav" aria-label="Điều hướng quay lại">
-        <RouterLink to="/community" class="btn-back">
+        <a href="/community" class="btn-back" @click.prevent="handleGoBack">
           <span aria-hidden="true">←</span>
           <span>Quay lại Bảng tin Cộng đồng</span>
-        </RouterLink>
+        </a>
       </nav>
 
       <!-- Loading State -->
@@ -159,6 +182,7 @@ onUnmounted(() => {
           :is-detail-view="true"
           @edit="handleEditPost"
           @deleted="handlePostDeleted"
+          @share="handleSharePost"
         />
 
         <!-- Comments Section (Package 9.4B) -->
@@ -177,6 +201,14 @@ onUnmounted(() => {
       :post="post"
       @close="isEditModalOpen = false"
       @saved="handlePostSaved"
+    />
+
+    <!-- Share Post Modal -->
+    <ShareRecipientModal
+      v-if="post"
+      :is-open="isShareModalOpen"
+      :post="post"
+      @close="isShareModalOpen = false"
     />
   </div>
 </template>

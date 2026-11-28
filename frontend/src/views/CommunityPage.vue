@@ -1,18 +1,39 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import type { Post, PostSortOption, PaginationMeta } from '@/types/community'
 import type { ComicListItem } from '@/types/catalog'
 import { CommunityService } from '@/services/communityService'
 import { CatalogService } from '@/services/catalogService'
 import { useAuthStore } from '@/stores/auth'
+import { useCommunityFeedStore } from '@/stores/communityFeed'
 import { getErrorMessage } from '@/services/httpClient'
 import PostCard from '@/components/community/PostCard.vue'
 import PostFormModal from '@/components/community/PostFormModal.vue'
+import ShareRecipientModal from '@/components/chat/ShareRecipientModal.vue'
+import CommunityRankingsSidebar from '@/components/community/CommunityRankingsSidebar.vue'
+import CommunityConnectionsSidebar from '@/components/community/CommunityConnectionsSidebar.vue'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const communityFeedStore = useCommunityFeedStore()
+
+// Share state
+const sharingPost = ref<Post | null>(null)
+const isShareModalOpen = ref(false)
+
+function handleSharePost(post: Post) {
+  if (!authStore.isAuthenticated) {
+    router.push({
+      path: '/login',
+      query: { redirect: route.fullPath },
+    })
+    return
+  }
+  sharingPost.value = post
+  isShareModalOpen.value = true
+}
 
 // Request synchronization & lifecycle guard
 let activeFetchId = 0
@@ -243,16 +264,72 @@ watch(
   }
 )
 
-onMounted(() => {
-  if (route.query.comic_id) {
-    const parsed = parseInt(String(route.query.comic_id), 10)
-    if (!isNaN(parsed) && parsed > 0) {
-      selectedComicId.value = parsed
+onBeforeRouteLeave((to, _from) => {
+  // If navigating to a post detail, preserve feed state & scroll position
+  if (to.name === 'post-detail' || to.path.startsWith('/posts/')) {
+    const rawId = to.params.id
+    const targetPostId = rawId ? parseInt(String(rawId), 10) : null
+    if (targetPostId && !isNaN(targetPostId)) {
+      communityFeedStore.setLastActivePostId(targetPostId)
     }
-  }
 
-  loadFilterComics()
-  fetchPosts()
+    communityFeedStore.saveFeedState({
+      posts: posts.value,
+      paginationMeta: paginationMeta.value,
+      currentSort: currentSort.value,
+      selectedComicId: selectedComicId.value,
+      currentPage: currentPage.value,
+      scrollY: window.scrollY || document.documentElement.scrollTop || 0,
+    })
+  } else {
+    // Navigating elsewhere (home, catalog, etc.), reset saved feed cache
+    communityFeedStore.clearFeedState()
+  }
+})
+
+onMounted(() => {
+  if (communityFeedStore.hasSavedState) {
+    // Restore cached state from previous scroll session
+    posts.value = [...communityFeedStore.posts]
+    paginationMeta.value = communityFeedStore.paginationMeta
+    currentSort.value = communityFeedStore.currentSort
+    selectedComicId.value = communityFeedStore.selectedComicId
+    currentPage.value = communityFeedStore.currentPage
+    isLoading.value = false
+
+    loadFilterComics()
+
+    // Smoothly restore scroll after DOM renders
+    function restoreScroll() {
+      const targetId = communityFeedStore.lastActivePostId
+      if (targetId) {
+        const el = document.getElementById(`post-${targetId}`)
+        if (el) {
+          el.scrollIntoView({ block: 'center', behavior: 'auto' })
+          return
+        }
+      }
+      if (communityFeedStore.savedScrollY > 0) {
+        window.scrollTo({ top: communityFeedStore.savedScrollY, behavior: 'auto' })
+      }
+    }
+
+    nextTick(() => {
+      restoreScroll()
+      setTimeout(restoreScroll, 60)
+      setTimeout(restoreScroll, 180)
+    })
+  } else {
+    if (route.query.comic_id) {
+      const parsed = parseInt(String(route.query.comic_id), 10)
+      if (!isNaN(parsed) && parsed > 0) {
+        selectedComicId.value = parsed
+      }
+    }
+
+    loadFilterComics()
+    fetchPosts()
+  }
 })
 
 onUnmounted(() => {
@@ -262,7 +339,7 @@ onUnmounted(() => {
 
 <template>
   <div class="community-page">
-    <div class="container community-container">
+    <div class="community-container">
       <!-- Community Banner Header -->
       <section class="community-header">
         <div class="header-text-group">
@@ -291,162 +368,179 @@ onUnmounted(() => {
         </div>
       </section>
 
-      <!-- Navigation & Filters Bar -->
-      <section class="controls-bar" aria-label="Bộ lọc và sắp xếp bài đăng">
-        <!-- Sort Tabs -->
-        <div class="sort-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            class="tab-btn"
-            :class="{ active: currentSort === 'latest' }"
-            :aria-selected="currentSort === 'latest'"
-            @click="handleTabChange('latest')"
-          >
-            <span class="tab-icon" aria-hidden="true">🕒</span>
-            <span>Mới nhất</span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            class="tab-btn"
-            :class="{ active: currentSort === 'popular' }"
-            :aria-selected="currentSort === 'popular'"
-            @click="handleTabChange('popular')"
-          >
-            <span class="tab-icon" aria-hidden="true">🔥</span>
-            <span>Phổ biến nhất</span>
-          </button>
-        </div>
+      <!-- 3-Column Community Layout Grid -->
+      <div class="community-layout-grid">
+        <!-- Left Column: Community Rankings (Top Liked & Top Commented) -->
+        <aside class="community-sidebar-left" aria-label="Bảng xếp hạng bài viết trong tuần">
+          <CommunityRankingsSidebar />
+        </aside>
 
-        <!-- Filter by Comic -->
-        <div class="filter-group">
-          <label for="filter-comic-select" class="filter-label">Lọc theo truyện:</label>
-          <select
-            id="filter-comic-select"
-            v-model="selectedComicId"
-            class="filter-select"
-            :disabled="isLoadingComics"
-            @change="handleComicFilterChange"
-          >
-            <option :value="null">Tất cả truyện</option>
-            <option
-              v-for="comic in availableComics"
-              :key="comic.id"
-              :value="comic.id"
-            >
-              {{ comic.title }}
-            </option>
-          </select>
-          <button
-            v-if="hasActiveFilter"
-            type="button"
-            class="btn-clear-filter"
-            title="Xóa bộ lọc truyện"
-            aria-label="Xóa bộ lọc truyện"
-            @click="clearFilter"
-          >
-            ✕
-          </button>
-        </div>
-      </section>
+        <!-- Center Column: Community Main Feed -->
+        <main class="community-main-column" aria-label="Bảng tin cộng đồng">
+          <!-- Navigation & Filters Bar -->
+          <section class="controls-bar" aria-label="Bộ lọc và sắp xếp bài đăng">
+            <!-- Sort Tabs -->
+            <div class="sort-tabs" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                class="tab-btn"
+                :class="{ active: currentSort === 'latest' }"
+                :aria-selected="currentSort === 'latest'"
+                @click="handleTabChange('latest')"
+              >
+                <span class="tab-icon" aria-hidden="true">🕒</span>
+                <span>Mới nhất</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                class="tab-btn"
+                :class="{ active: currentSort === 'popular' }"
+                :aria-selected="currentSort === 'popular'"
+                @click="handleTabChange('popular')"
+              >
+                <span class="tab-icon" aria-hidden="true">🔥</span>
+                <span>Phổ biến nhất</span>
+              </button>
+            </div>
 
-      <!-- Results Count Info -->
-      <div v-if="paginationMeta && !isLoading" class="results-info-row">
-        <span class="results-text">
-          Hiển thị <strong>{{ posts.length }}</strong> trên tổng số <strong>{{ paginationMeta.total }}</strong> bài viết
-        </span>
-      </div>
+            <!-- Filter by Comic -->
+            <div class="filter-group">
+              <label for="filter-comic-select" class="filter-label">Lọc theo truyện:</label>
+              <select
+                id="filter-comic-select"
+                v-model="selectedComicId"
+                class="filter-select"
+                :disabled="isLoadingComics"
+                @change="handleComicFilterChange"
+              >
+                <option :value="null">Tất cả truyện</option>
+                <option
+                  v-for="comic in availableComics"
+                  :key="comic.id"
+                  :value="comic.id"
+                >
+                  {{ comic.title }}
+                </option>
+              </select>
+              <button
+                v-if="hasActiveFilter"
+                type="button"
+                class="btn-clear-filter"
+                title="Xóa bộ lọc truyện"
+                aria-label="Xóa bộ lọc truyện"
+                @click="clearFilter"
+              >
+                ✕
+              </button>
+            </div>
+          </section>
 
-      <!-- Loading State -->
-      <section v-if="isLoading" class="loading-state" aria-busy="true">
-        <div class="spinner-large" aria-hidden="true"></div>
-        <p class="loading-text">Đang tải bài viết cộng đồng...</p>
-      </section>
-
-      <!-- Error State -->
-      <section v-else-if="errorMessage" class="error-state" role="alert">
-        <div class="error-icon" aria-hidden="true">⚠️</div>
-        <h2 class="error-title">Không thể tải dữ liệu</h2>
-        <p class="error-message">{{ errorMessage }}</p>
-        <button
-          type="button"
-          class="btn-retry"
-          @click="fetchPosts"
-        >
-          Thử lại
-        </button>
-      </section>
-
-      <!-- Empty State -->
-      <section v-else-if="posts.length === 0" class="empty-state">
-        <div class="empty-icon" aria-hidden="true">💬</div>
-        <h2 class="empty-title">Chưa có bài viết nào</h2>
-        <p class="empty-desc">
-          {{ hasActiveFilter ? 'Không tìm thấy bài viết nào gắn kèm bộ truyện này.' : 'Chưa có bài viết nào được đăng tải trên bảng tin cộng đồng.' }}
-        </p>
-        <div class="empty-actions">
-          <button
-            v-if="hasActiveFilter"
-            type="button"
-            class="btn-secondary"
-            @click="clearFilter"
-          >
-            Xem tất cả bài viết
-          </button>
-          <button
-            type="button"
-            class="btn-action-primary"
-            @click="handleCreatePostClick"
-          >
-            Tạo bài viết đầu tiên
-          </button>
-        </div>
-      </section>
-
-      <!-- Posts List -->
-      <section v-else class="posts-feed">
-        <div class="posts-list">
-          <PostCard
-            v-for="post in posts"
-            :key="post.id"
-            :post="post"
-            @edit="handleEditPost"
-            @deleted="handlePostDeleted"
-          />
-        </div>
-
-        <!-- Pagination Bar -->
-        <nav
-          v-if="paginationMeta && paginationMeta.last_page > 1"
-          class="pagination-nav"
-          aria-label="Điều hướng phân trang"
-        >
-          <button
-            type="button"
-            class="btn-page btn-prev"
-            :disabled="paginationMeta.current_page <= 1"
-            aria-label="Trang trước"
-            @click="goToPage(paginationMeta.current_page - 1)"
-          >
-            ‹ Trang trước
-          </button>
-
-          <div class="page-indicator">
-            Trang <strong>{{ paginationMeta.current_page }}</strong> / {{ paginationMeta.last_page }}
+          <!-- Results Count Info -->
+          <div v-if="paginationMeta && !isLoading" class="results-info-row">
+            <span class="results-text">
+              Hiển thị <strong>{{ posts.length }}</strong> trên tổng số <strong>{{ paginationMeta.total }}</strong> bài viết
+            </span>
           </div>
 
-          <button
-            type="button"
-            class="btn-page btn-next"
-            :disabled="paginationMeta.current_page >= paginationMeta.last_page"
-            aria-label="Trang sau"
-            @click="goToPage(paginationMeta.current_page + 1)"
-          >
-            Trang sau ›
-          </button>
-        </nav>
-      </section>
+          <!-- Loading State -->
+          <section v-if="isLoading" class="loading-state" aria-busy="true">
+            <div class="spinner-large" aria-hidden="true"></div>
+            <p class="loading-text">Đang tải bài viết cộng đồng...</p>
+          </section>
+
+          <!-- Error State -->
+          <section v-else-if="errorMessage" class="error-state" role="alert">
+            <div class="error-icon" aria-hidden="true">⚠️</div>
+            <h2 class="error-title">Không thể tải dữ liệu</h2>
+            <p class="error-message">{{ errorMessage }}</p>
+            <button
+              type="button"
+              class="btn-retry"
+              @click="fetchPosts"
+            >
+              Thử lại
+            </button>
+          </section>
+
+          <!-- Empty State -->
+          <section v-else-if="posts.length === 0" class="empty-state">
+            <div class="empty-icon" aria-hidden="true">💬</div>
+            <h2 class="empty-title">Chưa có bài viết nào</h2>
+            <p class="empty-desc">
+              {{ hasActiveFilter ? 'Không tìm thấy bài viết nào gắn kèm bộ truyện này.' : 'Chưa có bài viết nào được đăng tải trên bảng tin cộng đồng.' }}
+            </p>
+            <div class="empty-actions">
+              <button
+                v-if="hasActiveFilter"
+                type="button"
+                class="btn-secondary"
+                @click="clearFilter"
+              >
+                Xem tất cả bài viết
+              </button>
+              <button
+                type="button"
+                class="btn-action-primary"
+                @click="handleCreatePostClick"
+              >
+                Tạo bài viết đầu tiên
+              </button>
+            </div>
+          </section>
+
+          <!-- Posts List -->
+          <section v-else class="posts-feed">
+            <div class="posts-list">
+              <PostCard
+                v-for="post in posts"
+                :key="post.id"
+                :post="post"
+                @edit="handleEditPost"
+                @deleted="handlePostDeleted"
+                @share="handleSharePost"
+              />
+            </div>
+
+            <!-- Pagination Bar -->
+            <nav
+              v-if="paginationMeta && paginationMeta.last_page > 1"
+              class="pagination-nav"
+              aria-label="Điều hướng phân trang"
+            >
+              <button
+                type="button"
+                class="btn-page btn-prev"
+                :disabled="paginationMeta.current_page <= 1"
+                aria-label="Trang trước"
+                @click="goToPage(paginationMeta.current_page - 1)"
+              >
+                ‹ Trang trước
+              </button>
+
+              <div class="page-indicator">
+                Trang <strong>{{ paginationMeta.current_page }}</strong> / {{ paginationMeta.last_page }}
+              </div>
+
+              <button
+                type="button"
+                class="btn-page btn-next"
+                :disabled="paginationMeta.current_page >= paginationMeta.last_page"
+                aria-label="Trang sau"
+                @click="goToPage(paginationMeta.current_page + 1)"
+              >
+                Trang sau ›
+              </button>
+            </nav>
+          </section>
+        </main>
+
+        <!-- Right Column: Community Connections (Follow, Following & Message Requests) -->
+        <aside class="community-sidebar-right" aria-label="Kết nối người dùng">
+          <CommunityConnectionsSidebar />
+        </aside>
+      </div>
     </div>
 
     <!-- Create / Edit Post Modal -->
@@ -457,6 +551,14 @@ onUnmounted(() => {
       @close="isModalOpen = false"
       @saved="handlePostSaved"
     />
+
+    <!-- Share Post Modal -->
+    <ShareRecipientModal
+      v-if="sharingPost"
+      :is-open="isShareModalOpen"
+      :post="sharingPost"
+      @close="isShareModalOpen = false"
+    />
   </div>
 </template>
 
@@ -464,13 +566,108 @@ onUnmounted(() => {
 .community-page {
   padding: var(--spacing-xl) 0;
   min-height: calc(100vh - 64px - 100px);
+  width: 100%;
+  overflow-x: clip;
 }
 
 .community-container {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xl);
-  max-width: 860px;
+  width: 100%;
+  max-width: 95vw;
+  margin-inline: auto;
+  padding-inline: clamp(16px, 2.5vw, 40px);
+  box-sizing: border-box;
+}
+
+@media (min-width: 1440px) {
+  .community-container {
+    max-width: min(94vw, 1580px);
+    padding-inline: 36px;
+  }
+}
+
+@media (min-width: 1920px) {
+  .community-container {
+    max-width: min(93vw, 1840px);
+    padding-inline: 44px;
+  }
+}
+
+@media (min-width: 2560px) {
+  .community-container {
+    max-width: min(92vw, 2360px);
+    padding-inline: 56px;
+  }
+}
+
+.community-layout-grid {
+  display: grid;
+  grid-template-columns: 310px minmax(0, 1fr) 300px;
+  gap: var(--spacing-lg, 24px);
+  align-items: start;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+@media (min-width: 1600px) {
+  .community-layout-grid {
+    grid-template-columns: 330px minmax(0, 1fr) 320px;
+    gap: var(--spacing-xl, 28px);
+  }
+}
+
+@media (min-width: 2200px) {
+  .community-layout-grid {
+    grid-template-columns: 360px minmax(0, 1fr) 340px;
+    gap: 32px;
+  }
+}
+
+.community-sidebar-left,
+.community-sidebar-right {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.community-main-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg, 20px);
+  min-width: 0;
+  width: 100%;
+}
+
+@media (max-width: 1200px) {
+  .community-layout-grid {
+    grid-template-columns: 280px minmax(0, 1fr);
+    gap: var(--spacing-md, 16px);
+  }
+  .community-sidebar-right {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 900px) {
+  .community-layout-grid {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xl, 28px);
+  }
+  .community-main-column {
+    order: 1;
+    width: 100%;
+  }
+  .community-sidebar-left {
+    order: 2;
+    width: 100%;
+  }
+  .community-sidebar-right {
+    order: 3;
+    width: 100%;
+  }
 }
 
 /* Header */
@@ -484,6 +681,8 @@ onUnmounted(() => {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .header-text-group {
